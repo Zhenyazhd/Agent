@@ -2,7 +2,7 @@
 
 A learning project built to understand how LLM agents work and to gain deeper knowledge of Rust. This project implements an agent server that connects Large Language Models (LLMs) from OpenRouter with external tools through the Model Context Protocol (MCP).
 
-![LLM Agent Interface](../image.png)
+![LLM Agent Interface](image.png)
 
 ### Project Structure
 
