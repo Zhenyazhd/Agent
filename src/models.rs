@@ -17,15 +17,12 @@ pub struct Message {
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Tool calls made by assistant (for assistant messages)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<MessageToolCall>>,
-    /// Tool call ID this message is responding to (for tool messages)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
 }
 
-/// Tool call in a message (simplified version for sending)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageToolCall {
     pub id: String,
@@ -106,44 +103,31 @@ pub struct FunctionDefinition {
     pub parameters: serde_json::Value,
 }
 
-/// Request to OpenRouter API
 #[derive(Debug, Serialize)]
 pub struct ChatCompletionRequest {
     pub model: String,
     pub messages: Vec<Message>,
-    /// Температура генерации (0.0-2.0)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
-    /// Максимальное количество токенов в ответе
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
-    /// Включить streaming ответ (Server-Sent Events)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
-    /// Доступные инструменты (функции) для вызова
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<Tool>>,
-    /// Top-p (nucleus sampling) параметр
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
-    /// Штраф за частоту токенов
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frequency_penalty: Option<f32>,
-    /// Штраф за присутствие токенов
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presence_penalty: Option<f32>,
 }
 
-/// Response from OpenRouter API
 #[derive(Debug, Deserialize)]
 pub struct ChatCompletionResponse {
-    /// Уникальный идентификатор запроса
     pub id: String,
-    /// Список вариантов ответов (обычно один)
     pub choices: Vec<Choice>,
-    /// Имя модели, которая сгенерировала ответ
     pub model: String,
-    /// Информация об использовании токенов (опционально)
     pub usage: Option<Usage>,
 }
 
@@ -156,7 +140,7 @@ pub struct Choice {
 
 #[derive(Debug, Deserialize)]
 pub struct ResponseMessage {
-    pub role: String,
+    pub role: Role,
     pub content: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
 }
@@ -182,7 +166,6 @@ pub struct Usage {
     pub total_tokens: u32,
 }
 
-/// Streaming response chunk
 #[derive(Debug, Deserialize)]
 pub struct ChatCompletionChunk {
     pub id: String,
@@ -219,7 +202,6 @@ pub struct FunctionCallDelta {
     pub arguments: Option<String>,
 }
 
-/// API request from client
 #[derive(Debug, Deserialize)]
 pub struct AgentRequest {
     pub messages: Vec<Message>,
@@ -235,7 +217,6 @@ pub struct AgentRequest {
     pub system_prompt: Option<String>,
 }
 
-/// API response to client
 #[derive(Debug, Serialize)]
 pub struct AgentResponse {
     pub id: String,
@@ -252,7 +233,6 @@ pub struct UsageInfo {
     pub total_tokens: u32,
 }
 
-/// Error response
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
     pub error: String,

@@ -1,21 +1,21 @@
 use crate::config::Config;
 use crate::error::AgentError;
-use crate::models::{Message, MessageToolCall, MessageFunctionCall};
+use crate::mcp::McpManager;
+use crate::models::{FunctionDefinition, Message, MessageFunctionCall, MessageToolCall, Tool};
 use crate::openrouter::OpenRouterClient;
-use crate::tools::{ToolDefinition, ToolRegistry};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use serde_json::{json, Value};
+use std::sync::Arc;
+use tracing::{debug, info, warn};
 
 const MAX_ITERATIONS: usize = 10;
 
-/// Agent that can use tools to accomplish tasks
 pub struct Agent {
     client: OpenRouterClient,
-    tools: ToolRegistry,
     config: Config,
+    mcp: Option<Arc<McpManager>>,
 }
 
-/// A single step in the agent's execution
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentStep {
     pub step_type: StepType,
@@ -38,7 +38,6 @@ pub enum StepType {
     Error,
 }
 
-/// Complete agent response with all steps
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentResponse {
     pub steps: Vec<AgentStep>,
@@ -47,19 +46,56 @@ pub struct AgentResponse {
 }
 
 impl Agent {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, mcp: Option<Arc<McpManager>>) -> Self {
         Self {
             client: OpenRouterClient::new(config.clone()),
-            tools: ToolRegistry::new(),
             config,
+            mcp,
         }
     }
 
-    pub fn get_tools(&self) -> Vec<ToolDefinition> {
-        self.tools.get_all()
+    pub async fn get_tools(&self) -> Vec<Tool> {
+        let Some(ref mcp) = self.mcp else {
+            return Vec::new();
+        };
+
+        mcp.get_all_tools()
+            .await
+            .into_iter()
+            .map(|(server_name, tool)| Tool {
+                tool_type: "function".to_string(),
+                function: FunctionDefinition {
+                    name: format!("mcp_{}_{}", server_name, tool.name),
+                    description: tool
+                        .description
+                        .unwrap_or_else(|| format!("MCP tool from {}", server_name)),
+                    parameters: tool.input_schema,
+                },
+            })
+            .collect()
     }
 
-    /// Run the agent with a user message
+    fn parse_mcp_tool_name(name: &str) -> Option<(String, String)> {
+        let rest = name.strip_prefix("mcp_")?;
+        let pos = rest.find('_')?;
+        Some((rest[..pos].to_string(), rest[pos + 1..].to_string()))
+    }
+
+    async fn execute_tool(&self, tool_name: &str, args_json: &str) -> Result<String, AgentError> {
+        let (server_name, mcp_tool_name) = Self::parse_mcp_tool_name(tool_name)
+            .ok_or_else(|| AgentError::ToolError(format!("Unknown tool: {}", tool_name)))?;
+
+        let mcp = self.mcp.as_ref()
+            .ok_or_else(|| AgentError::ToolError("MCP not configured".to_string()))?;
+
+        let args: Value = serde_json::from_str(args_json)
+            .map_err(|e| AgentError::ToolError(format!("Invalid arguments: {}", e)))?;
+
+        mcp.call_tool_text(&server_name, &mcp_tool_name, args)
+            .await
+            .map_err(|e| AgentError::ToolError(e.to_string()))
+    }
+
     pub async fn run(
         &self,
         user_message: &str,
@@ -67,20 +103,16 @@ impl Agent {
         system_prompt: Option<String>,
         model: Option<String>,
     ) -> Result<AgentResponse, AgentError> {
-        let system_prompt = system_prompt.unwrap_or_else(|| {
-            r#"You are a helpful AI assistant with access to tools.
-When you need to perform calculations, get current time, search for information, or execute code, use the available tools.
-Always explain your reasoning before using a tool.
-After getting tool results, analyze them and provide a helpful response to the user."#.to_string()
-        });
+        let system_prompt = system_prompt.unwrap_or_else(|| self.config.system_prompt.clone());
 
         let mut messages = vec![Message::system(&system_prompt)];
         messages.extend(conversation_history);
         messages.push(Message::user(user_message));
 
-        let tools = self.get_tools();
-        let model = model.unwrap_or_else(|| self.config.default_model.clone());
+        let tools = self.get_tools().await;
+        info!("Agent has {} MCP tools available", tools.len());
 
+        let model = model.unwrap_or_else(|| self.config.default_model.clone());
         let mut steps = Vec::new();
         let mut iterations = 0;
 
@@ -100,7 +132,6 @@ After getting tool results, analyze them and provide a helpful response to the u
             info!("Agent iteration {}", iterations);
             debug!("Messages: {:?}", messages);
 
-            // Call LLM with tools
             let response = self
                 .client
                 .chat_completion_with_tools(messages.clone(), Some(model.clone()), Some(tools.clone()))
@@ -111,105 +142,106 @@ After getting tool results, analyze them and provide a helpful response to the u
                 .first()
                 .ok_or_else(|| AgentError::ParseError("No choices in response".to_string()))?;
 
-            // Check if there are tool calls
-            if let Some(tool_calls) = &choice.message.tool_calls {
-                if !tool_calls.is_empty() {
-                    // Process each tool call
-                    let assistant_content = choice.message.content.clone();
+            let Some(tool_calls) = &choice.message.tool_calls else {
+                return Ok(self.create_final_response(steps, &choice.message.content, iterations));
+            };
 
-                    if let Some(ref content) = assistant_content {
-                        if !content.is_empty() {
-                            steps.push(AgentStep {
-                                step_type: StepType::Thinking,
-                                content: content.clone(),
-                                tool_name: None,
-                                tool_input: None,
-                                tool_output: None,
-                            });
-                        }
-                    }
+            if tool_calls.is_empty() {
+                return Ok(self.create_final_response(steps, &choice.message.content, iterations));
+            }
 
-                    // Convert tool calls to message format
-                    let message_tool_calls: Vec<MessageToolCall> = tool_calls
-                        .iter()
-                        .map(|tc| MessageToolCall {
-                            id: tc.id.clone(),
-                            call_type: "function".to_string(),
-                            function: MessageFunctionCall {
-                                name: tc.function.name.clone(),
-                                arguments: tc.function.arguments.clone(),
-                            },
-                        })
-                        .collect();
-
-                    // Add assistant message with tool calls to history
-                    messages.push(Message::assistant_with_tool_calls(
-                        assistant_content,
-                        message_tool_calls,
-                    ));
-
-                    // Execute each tool and add results
-                    for tool_call in tool_calls {
-                        let tool_name = &tool_call.function.name;
-                        let tool_args = &tool_call.function.arguments;
-
-                        steps.push(AgentStep {
-                            step_type: StepType::ToolCall,
-                            content: format!("Calling tool: {}", tool_name),
-                            tool_name: Some(tool_name.clone()),
-                            tool_input: Some(tool_args.clone()),
-                            tool_output: None,
-                        });
-
-                        // Execute the tool
-                        let result = self.tools.execute(tool_name, tool_args).await;
-
-                        steps.push(AgentStep {
-                            step_type: StepType::ToolResult,
-                            content: result.result.clone(),
-                            tool_name: Some(tool_name.clone()),
-                            tool_input: None,
-                            tool_output: Some(result.result.clone()),
-                        });
-
-                        // Add tool result to messages
-                        messages.push(Message::tool_result(&tool_call.id, result.result));
-                    }
-
-                    continue; // Continue the loop to get next response
+            if let Some(ref content) = choice.message.content {
+                if !content.is_empty() {
+                    steps.push(AgentStep {
+                        step_type: StepType::Thinking,
+                        content: content.clone(),
+                        tool_name: None,
+                        tool_input: None,
+                        tool_output: None,
+                    });
                 }
             }
 
-            // No tool calls - this is the final answer
-            let final_answer = choice.message.content.clone().unwrap_or_default();
+            let message_tool_calls: Vec<MessageToolCall> = tool_calls
+                .iter()
+                .map(|tc| MessageToolCall {
+                    id: tc.id.clone(),
+                    call_type: "function".to_string(),
+                    function: MessageFunctionCall {
+                        name: tc.function.name.clone(),
+                        arguments: tc.function.arguments.clone(),
+                    },
+                })
+                .collect();
 
-            steps.push(AgentStep {
-                step_type: StepType::FinalAnswer,
-                content: final_answer.clone(),
-                tool_name: None,
-                tool_input: None,
-                tool_output: None,
-            });
+            messages.push(Message::assistant_with_tool_calls(
+                choice.message.content.clone(),
+                message_tool_calls,
+            ));
 
-            return Ok(AgentResponse {
-                steps,
-                final_answer,
-                iterations,
-            });
+            for tool_call in tool_calls {
+                let tool_name = &tool_call.function.name;
+                let tool_args = &tool_call.function.arguments;
+
+                steps.push(AgentStep {
+                    step_type: StepType::ToolCall,
+                    content: format!("Calling: {}", tool_name),
+                    tool_name: Some(tool_name.clone()),
+                    tool_input: Some(tool_args.clone()),
+                    tool_output: None,
+                });
+
+                let (step_type, result) = match self.execute_tool(tool_name, tool_args).await {
+                    Ok(text) => (StepType::ToolResult, text),
+                    Err(e) => {
+                        warn!("Tool execution failed: {}", e);
+                        (StepType::Error, format!("Error: {}", e))
+                    }
+                };
+                steps.push(AgentStep {
+                    step_type,
+                    content: result.clone(),
+                    tool_name: Some(tool_name.clone()),
+                    tool_input: None,
+                    tool_output: Some(result.clone()),
+                });
+                messages.push(Message::tool_result(&tool_call.id, result));
+            }
         }
-
-        // If we broke out of the loop due to max iterations
         let final_answer = steps
             .iter()
-            .filter(|s| s.step_type == StepType::Thinking || s.step_type == StepType::ToolResult)
-            .last()
+            .rev()
+            .find(|s| matches!(s.step_type, StepType::Thinking | StepType::ToolResult))
             .map(|s| s.content.clone())
-            .unwrap_or_else(|| "I couldn't complete the task within the iteration limit.".to_string());
+            .unwrap_or_else(|| "Task incomplete: iteration limit reached.".to_string());
 
         Ok(AgentResponse {
             steps,
             final_answer,
             iterations,
         })
+    }
+
+    fn create_final_response(
+        &self,
+        mut steps: Vec<AgentStep>,
+        content: &Option<String>,
+        iterations: usize,
+    ) -> AgentResponse {
+        let final_answer = content.clone().unwrap_or_default();
+
+        steps.push(AgentStep {
+            step_type: StepType::FinalAnswer,
+            content: final_answer.clone(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+        });
+
+        AgentResponse {
+            steps,
+            final_answer,
+            iterations,
+        }
     }
 }

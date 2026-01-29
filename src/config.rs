@@ -1,5 +1,9 @@
 use std::env;
 
+const DEFAULT_SYSTEM_PROMPT: &str = "\
+You are a helpful AI assistant with access to MCP tools. \
+Use tools when needed, explain your reasoning, and provide helpful responses.";
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub openrouter_api_key: String,
@@ -7,6 +11,7 @@ pub struct Config {
     pub default_model: String,
     pub server_host: String,
     pub server_port: u16,
+    pub system_prompt: String,
 }
 
 impl Config {
@@ -22,6 +27,8 @@ impl Config {
                 .unwrap_or_else(|_| "3000".to_string())
                 .parse()
                 .unwrap_or(3000),
+            system_prompt: env::var("SYSTEM_PROMPT")
+                .unwrap_or_else(|_| DEFAULT_SYSTEM_PROMPT.to_string()),
         })
     }
 }

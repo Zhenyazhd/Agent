@@ -28,6 +28,9 @@ pub enum AgentError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("Tool error: {0}")]
+    ToolError(String),
 }
 
 impl IntoResponse for AgentError {
@@ -54,6 +57,9 @@ impl IntoResponse for AgentError {
             }
             AgentError::Internal(msg) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", msg.clone())
+            }
+            AgentError::ToolError(msg) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "TOOL_ERROR", msg.clone())
             }
         };
 

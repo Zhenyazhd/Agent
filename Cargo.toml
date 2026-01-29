@@ -40,3 +40,6 @@ uuid = { version = "1", features = ["v4"] }
 
 # Date/time
 chrono = "0.4"
+
+# MCP support
+regex = "1"

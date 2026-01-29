@@ -7,6 +7,7 @@ use axum::{
     Json,
 };
 use futures::stream::Stream;
+use serde_json::Value;
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -17,34 +18,41 @@ use uuid::Uuid;
 use crate::agent::Agent;
 use crate::config::Config;
 use crate::error::AgentError;
+use crate::mcp::McpManager;
 use crate::models::{AgentRequest, AgentResponse, Message, UsageInfo};
 use crate::openrouter::OpenRouterClient;
 
-/// Shared application state
 pub struct AppState {
     pub client: OpenRouterClient,
     pub agent: Agent,
+    pub mcp: Option<Arc<McpManager>>,
 }
 
 impl AppState {
-    pub fn new(config: Config) -> Arc<Self> {
+    pub fn new(config: Config, mcp: Option<Arc<McpManager>>) -> Arc<Self> {
         Arc::new(Self {
             client: OpenRouterClient::new(config.clone()),
-            agent: Agent::new(config),
+            agent: Agent::new(config, mcp.clone()),
+            mcp,
         })
     }
 }
 
-/// Health check endpoint
-pub async fn health_check() -> impl IntoResponse {
+pub async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let mcp_connected = if let Some(ref mcp) = state.mcp {
+        mcp.connected_servers().await
+    } else {
+        vec![]
+    };
+
     Json(serde_json::json!({
         "status": "ok",
         "service": "llm-agent",
-        "capabilities": ["chat", "agent", "tools"]
+        "capabilities": ["chat", "agent", "tools", "mcp"],
+        "mcp_servers": mcp_connected
     }))
 }
 
-/// Chat completion endpoint (non-streaming)
 pub async fn chat_completion(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AgentRequest>,
@@ -89,7 +97,6 @@ pub async fn chat_completion(
     }))
 }
 
-/// Streaming chat completion endpoint
 pub async fn chat_completion_stream(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AgentRequest>,
@@ -140,7 +147,6 @@ pub async fn chat_completion_stream(
     Ok(Sse::new(stream))
 }
 
-/// List available models
 pub async fn list_models(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, AgentError> {
@@ -149,9 +155,8 @@ pub async fn list_models(
     Ok(Json(models))
 }
 
-/// Get available tools
 pub async fn get_tools(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let tools = state.agent.get_tools();
+    let tools = state.agent.get_tools().await;
     Json(serde_json::json!({
         "tools": tools.iter().map(|t| {
             serde_json::json!({
@@ -163,7 +168,115 @@ pub async fn get_tools(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     }))
 }
 
-/// Simple agent chat endpoint (no tools)
+pub async fn get_mcp_tools(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    if let Some(ref mcp) = state.mcp {
+        let tools = mcp.get_all_tools().await;
+        let tools_json: Vec<_> = tools
+            .into_iter()
+            .map(|(server, tool)| {
+                serde_json::json!({
+                    "server": server,
+                    "name": tool.name,
+                    "full_name": format!("{}_{}", server, tool.name),
+                    "description": tool.description,
+                    "input_schema": tool.input_schema
+                })
+            })
+            .collect();
+
+        Json(serde_json::json!({
+            "mcp_enabled": true,
+            "servers": mcp.connected_servers().await,
+            "tools": tools_json
+        }))
+    } else {
+        Json(serde_json::json!({
+            "mcp_enabled": false,
+            "servers": [],
+            "tools": []
+        }))
+    }
+}
+
+pub async fn mcp_call_tool(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<McpToolCallRequest>,
+) -> Result<Json<serde_json::Value>, AgentError> {
+    let mcp = state
+        .mcp
+        .as_ref()
+        .ok_or_else(|| AgentError::Internal("MCP not configured".to_string()))?;
+
+    let result = mcp
+        .call_tool_by_full_name(&request.tool_name, request.arguments)
+        .await
+        .map_err(|e| AgentError::Internal(format!("MCP tool call failed: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "result": result
+    })))
+}
+
+pub async fn get_mcp_servers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    if let Some(ref mcp) = state.mcp {
+        let servers = mcp.get_servers_status().await;
+        Json(serde_json::json!({
+            "mcp_enabled": true,
+            "servers": servers
+        }))
+    } else {
+        Json(serde_json::json!({
+            "mcp_enabled": false,
+            "servers": []
+        }))
+    }
+}
+
+pub async fn enable_mcp_server(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<McpServerToggleRequest>,
+) -> Result<Json<serde_json::Value>, AgentError> {
+    let mcp = state
+        .mcp
+        .as_ref()
+        .ok_or_else(|| AgentError::Internal("MCP not configured".to_string()))?;
+
+    mcp.enable_server(&request.server_name)
+        .await
+        .map_err(|e| AgentError::Internal(format!("Failed to enable server: {}", e)))?;
+
+    let servers = mcp.get_servers_status().await;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Server {} enabled", request.server_name),
+        "servers": servers
+    })))
+}
+
+pub async fn disable_mcp_server(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<McpServerToggleRequest>,
+) -> Result<Json<serde_json::Value>, AgentError> {
+    let mcp = state
+        .mcp
+        .as_ref()
+        .ok_or_else(|| AgentError::Internal("MCP not configured".to_string()))?;
+
+    mcp.disable_server(&request.server_name)
+        .await
+        .map_err(|e| AgentError::Internal(format!("Failed to disable server: {}", e)))?;
+
+    let servers = mcp.get_servers_status().await;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Server {} disabled", request.server_name),
+        "servers": servers
+    })))
+}
+
 pub async fn agent_chat(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AgentChatRequest>,
@@ -203,7 +316,6 @@ pub async fn agent_chat(
     }))
 }
 
-/// Agent run endpoint with tools support
 pub async fn agent_run(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AgentRunRequest>,
@@ -270,4 +382,16 @@ pub struct AgentRunResponse {
     pub final_answer: String,
     pub steps: Vec<crate::agent::AgentStep>,
     pub iterations: usize,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct McpToolCallRequest {
+    pub tool_name: String,
+    #[serde(default)]
+    pub arguments: Value,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct McpServerToggleRequest {
+    pub server_name: String,
 }

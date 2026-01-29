@@ -281,6 +281,30 @@ impl McpManager {
         self.call_tool(server_name, tool_name, arguments).await
     }
 
+    pub async fn call_tool_text(
+        &self,
+        server_name: &str,
+        tool_name: &str,
+        arguments: Value,
+    ) -> Result<String> {
+        let result = self.call_tool(server_name, tool_name, arguments).await?;
+        Ok(Self::extract_text(&result))
+    }
+
+    fn extract_text(result: &Value) -> String {
+        if let Some(content) = result.get("content") {
+            if let Some(arr) = content.as_array() {
+                return arr
+                    .iter()
+                    .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+            }
+            return content.to_string();
+        }
+        result.to_string()
+    }
+
     pub async fn connected_servers(&self) -> Vec<String> {
         self.servers.read().await.keys().cloned().collect()
     }
