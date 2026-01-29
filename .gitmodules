@@ -1,0 +1,4 @@
+[submodule "agent/foundry-mcp-server"]
+	path = agent/foundry-mcp-server
+	url = https://github.com/Zhenyazhd/foundry-mcp-server.git
+	branch = cast-rpc-feature
