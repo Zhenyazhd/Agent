@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Message, Settings, Role } from '../types';
 import { sendMessage, sendMessageStream, runAgent } from '../api/client';
 
@@ -24,35 +24,60 @@ export function useChat({ settings, streaming = true }: UseChatOptions): UseChat
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const bufferRef = useRef<string>('');
+  const assistantIdRef = useRef<string | null>(null);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
     setError(null);
+    bufferRef.current = '';
+    assistantIdRef.current = null;
   }, []);
 
   const clearError = useCallback(() => {
     setError(null);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
   const sendUserMessage = useCallback(
     async (content: string) => {
       if (!content.trim() || isLoading) return;
+
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
 
       const userMessage: Message = {
         id: generateId(),
         role: 'user',
         content: content.trim(),
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
       };
 
-      setMessages((prev) => [...prev, userMessage]);
+      let conversation: Array<{ role: Role; content: string }> = [];
+
+      setMessages((prev) => {
+        const next = [...prev, userMessage];
+        conversation = next.map((m) => ({
+          role: m.role as Role,
+          content: m.content,
+        }));
+        return next;
+      });
+
       setIsLoading(true);
       setError(null);
-
-      const conversation = messages.map((m) => ({
-        role: m.role as Role,
-        content: m.content,
-      }));
 
       const request = {
         message: content.trim(),
@@ -65,65 +90,74 @@ export function useChat({ settings, streaming = true }: UseChatOptions): UseChat
 
       try {
         if (settings.agentMode) {
-          // Agent mode with tools
-          const response = await runAgent(request, settings.apiUrl);
+          const response = await runAgent(request, settings.apiUrl, abortController.signal);
 
           const assistantMessage: Message = {
             id: response.id,
             role: 'assistant',
             content: response.final_answer,
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
             steps: response.steps,
           };
 
           setMessages((prev) => [...prev, assistantMessage]);
         } else if (streaming) {
-          // Streaming response
+          const assistantId = generateId();
+          assistantIdRef.current = assistantId;
+          bufferRef.current = '';
+
           const assistantMessage: Message = {
-            id: generateId(),
+            id: assistantId,
             role: 'assistant',
             content: '',
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
           };
 
           setMessages((prev) => [...prev, assistantMessage]);
 
-          const stream = sendMessageStream(request, settings.apiUrl);
+          const stream = sendMessageStream(request, settings.apiUrl, abortController.signal);
 
           for await (const chunk of stream) {
             if (chunk.content) {
+              bufferRef.current += chunk.content;
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === assistantMessage.id
-                    ? { ...m, content: m.content + chunk.content }
+                  m.id === assistantIdRef.current
+                    ? { ...m, content: bufferRef.current }
                     : m
                 )
               );
             }
           }
         } else {
-          // Non-streaming response
-          const response = await sendMessage(request, settings.apiUrl);
+          const response = await sendMessage(request, settings.apiUrl, abortController.signal);
 
           const assistantMessage: Message = {
             id: response.id,
             role: 'assistant',
             content: response.message,
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
           };
 
           setMessages((prev) => [...prev, assistantMessage]);
         }
       } catch (err) {
+        // Don't show error if request was aborted
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
         const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
         setError(errorMessage);
         // Remove the empty assistant message on error (for streaming)
         setMessages((prev) => prev.filter((m) => m.content.trim() !== ''));
       } finally {
         setIsLoading(false);
+        abortControllerRef.current = null;
+        bufferRef.current = '';
+        assistantIdRef.current = null;
       }
     },
-    [messages, settings, streaming, isLoading]
+    [settings, streaming, isLoading]
   );
 
   return {

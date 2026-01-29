@@ -1,6 +1,7 @@
 import type { Message } from '../types';
 import { AgentSteps } from './AgentSteps';
-import './ChatMessage.css';
+import ReactMarkdown from 'react-markdown';
+import '../styles/ChatMessage.css';
 
 interface ChatMessageProps {
   message: Message;
@@ -13,11 +14,16 @@ export function ChatMessage({ message }: ChatMessageProps) {
   return (
     <div className={`chat-message ${isUser ? 'user' : 'assistant'} ${hasSteps ? 'has-steps' : ''}`}>
       <div className="message-avatar">
-        {isUser ? '👤' : hasSteps ? '🤖' : '💬'}
+        {isUser ? 'Y' : 'A'}
       </div>
       <div className="message-content">
-        <div className="message-role">
-          {isUser ? 'You' : hasSteps ? 'Agent' : 'Assistant'}
+        <div className="message-header">
+          <span className="message-role">
+            {isUser ? 'You' : hasSteps ? 'Agent' : 'Assistant'}
+          </span>
+          <span className="message-time">
+            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
         </div>
 
         {hasSteps && (
@@ -25,16 +31,15 @@ export function ChatMessage({ message }: ChatMessageProps) {
         )}
 
         <div className="message-text">
-          {message.content || (
+          {message.content ? (
+            <ReactMarkdown>{message.content}</ReactMarkdown>
+          ) : (
             <span className="typing-indicator">
               <span></span>
               <span></span>
               <span></span>
             </span>
           )}
-        </div>
-        <div className="message-time">
-          {message.timestamp.toLocaleTimeString()}
         </div>
       </div>
     </div>

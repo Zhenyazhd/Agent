@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { SettingsPanel } from './components/SettingsPanel';
+import { McpPanel } from './components/McpPanel';
 import { useChat } from './hooks/useChat';
 import { healthCheck } from './api/client';
 import type { Settings } from './types';
@@ -27,15 +28,13 @@ function App() {
 
   const { messages, isLoading, error, sendUserMessage, clearMessages, clearError } = useChat({
     settings,
-    streaming: !settings.agentMode, // Disable streaming in agent mode
+    streaming: !settings.agentMode,
   });
 
-  // Save settings to localStorage
   useEffect(() => {
     localStorage.setItem('llm-agent-settings', JSON.stringify(settings));
   }, [settings]);
 
-  // Check API connection
   useEffect(() => {
     const checkConnection = async () => {
       const connected = await healthCheck(settings.apiUrl);
@@ -47,7 +46,6 @@ function App() {
     return () => clearInterval(interval);
   }, [settings.apiUrl]);
 
-  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -55,9 +53,9 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🤖 LLM Agent</h1>
+        <h1>LLM Agent</h1>
         <button className="clear-button" onClick={clearMessages} disabled={messages.length === 0}>
-          🗑️ Clear Chat
+          Clear
         </button>
       </header>
 
@@ -67,22 +65,33 @@ function App() {
         isConnected={isConnected}
       />
 
+      <McpPanel apiUrl={settings.apiUrl} />
+
       {error && (
         <div className="error-banner">
-          <span>⚠️ {error}</span>
-          <button onClick={clearError}>✕</button>
+          <span>{error}</span>
+          <button onClick={clearError} aria-label="Dismiss error">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
       )}
 
       <main className="chat-container">
         {messages.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">💬</div>
+            <div className="empty-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </div>
             <h2>Start a conversation</h2>
             <p>Send a message to begin chatting with the AI assistant.</p>
             {!isConnected && (
               <p className="connection-warning">
-                ⚠️ Backend not connected. Make sure the server is running at{' '}
+                Backend not connected. Make sure the server is running at{' '}
                 <code>{settings.apiUrl}</code>
               </p>
             )}

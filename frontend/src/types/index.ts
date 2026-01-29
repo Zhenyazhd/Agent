@@ -4,7 +4,7 @@ export interface Message {
   id: string;
   role: Role;
   content: string;
-  timestamp: Date;
+  timestamp: string;
   steps?: AgentStep[];
 }
 
@@ -53,10 +53,10 @@ export interface Model {
   };
 }
 
-// Agent types
 export type StepType = 'thinking' | 'tool_call' | 'tool_result' | 'final_answer' | 'error';
 
 export interface AgentStep {
+  step_id?: string; 
   step_type: StepType;
   content: string;
   tool_name?: string;
