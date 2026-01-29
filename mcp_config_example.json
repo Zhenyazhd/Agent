@@ -1,15 +1,33 @@
 {
   "mcpServers": {
+    "foundry": {
+      "command": "npx",
+      "args": ["@pranesh.asp/foundry-mcp-server"],
+      "env": {
+        "RPC_URL": "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_API_KEY",
+        "PRIVATE_KEY": "0xYOUR_PRIVATE_KEY_HERE",
+        "YOUR_ALCHEMY_API_KEY": "YOUR_ALCHEMY_API_KEY"
+      }
+    },
+    "solodit": {
+      "command": "node",
+      "args": ["/path/to/your/mcp_solodit_db/dist/index.js"],
+      "env": {
+        "SOLODIT_API_KEY": "sk_YOUR_SOLODIT_API_KEY_HERE"
+      }
+    },
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "YOUR_WORKSPACE_PATH"],
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/your/workspace"],
       "env": {}
     },
-    "postgres": {                                                                                                          
-      "command": "npx",                                                                                                    
-      "args": ["-y", "@anthropic/mcp-server-postgres"],                                                                    
-      "env": { "DATABASE_URL": "YOUR_DATABASE_URL" }                                                                         
-    },        
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@anthropic/mcp-server-postgres"],
+      "env": {
+        "DATABASE_URL": "postgresql://username:password@localhost:5432/database_name"
+      }
+    },
     "OpenZeppelinSolidityContracts": {
       "type": "streamable-http",
       "url": "https://mcp.openzeppelin.com/contracts/solidity/mcp"
@@ -21,15 +39,6 @@
       "type": "streamable-http",                                                                                               
       "url": "https://mcp.blockscout.com/mcp",
       "timeout": 180000
-    },
-    "foundry": {
-      "command": "npx",
-      "args": ["@pranesh.asp/foundry-mcp-server"],
-      "env": {
-        "RPC_URL": "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_API_KEY",
-        "PRIVATE_KEY": "0x..."
-      }
-    }
-   
+    }  
   }
 }
