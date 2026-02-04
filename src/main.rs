@@ -1,9 +1,9 @@
-mod agent;   
-mod config;     
-mod error;     
-mod handlers;    
-mod mcp;         
-mod models;      
+mod agent;
+mod config;
+mod error;
+mod handlers;
+mod mcp;
+mod models;
 mod openrouter;  
 
 use axum::{
@@ -18,9 +18,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::Config;
 use crate::handlers::{
-    agent_chat, agent_run, chat_completion, chat_completion_stream, disable_mcp_server,
-    enable_mcp_server, get_mcp_servers, get_mcp_tools, get_tools, health_check, list_models,
-    mcp_call_tool, AppState,
+    agent_chat, agent_run, agent_run_stream, chat_completion, chat_completion_stream,
+    disable_mcp_server, enable_mcp_server, get_mcp_servers, get_mcp_tools, get_tools,
+    health_check, list_models, mcp_call_tool, AppState,
 };
 use crate::mcp::McpManager;
 
@@ -76,11 +76,14 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/health", get(health_check))
+        .route("/v1/agent/chat", post(agent_chat))
+        .route("/v1/agent/chat/stream", post(chat_completion_stream))
+        .route("/v1/agent/run", post(agent_run))
+        .route("/v1/agent/run/stream", post(agent_run_stream))
+        .route("/v1/agent/tools", get(get_tools))
+        // OpenAI-compatible (optional; primary API is /v1/agent/*)
         .route("/v1/chat/completions", post(chat_completion))
         .route("/v1/chat/completions/stream", post(chat_completion_stream))
-        .route("/v1/agent/chat", post(agent_chat))
-        .route("/v1/agent/run", post(agent_run))
-        .route("/v1/agent/tools", get(get_tools))
         .route("/v1/mcp/servers", get(get_mcp_servers))
         .route("/v1/mcp/servers/enable", post(enable_mcp_server))
         .route("/v1/mcp/servers/disable", post(disable_mcp_server))

@@ -80,15 +80,19 @@ The frontend will be available at `http://localhost:5173`
 
 ## API Endpoints
 
+Primary API is under **`/v1/agent/*`** (SDK and docs use these).
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/health` | Health check with MCP server status |
-| `POST` | `/v1/chat/completions` | OpenAI-compatible chat completion |
-| `POST` | `/v1/chat/completions/stream` | Streaming chat completion (SSE) |
-| `POST` | `/v1/agent/chat` | Simplified agent chat interface |
+| `POST` | `/v1/agent/chat` | Agent chat (single response) |
+| `POST` | `/v1/agent/chat/stream` | Agent chat streaming (SSE) |
 | `POST` | `/v1/agent/run` | Agent execution with tools |
-| `GET` | `/v1/models` | List available models from OpenRouter |
+| `POST` | `/v1/agent/run/stream` | Agent run streaming (SSE) |
 | `GET` | `/v1/agent/tools` | List available MCP tools |
+| `GET` | `/v1/models` | List available models from OpenRouter |
+
+*OpenAI-compatible aliases:* `POST /v1/chat/completions`, `POST /v1/chat/completions/stream`.
 | `GET` | `/v1/mcp/servers` | List MCP servers and their status |
 | `POST` | `/v1/mcp/servers/enable` | Enable an MCP server |
 | `POST` | `/v1/mcp/servers/disable` | Disable an MCP server |
@@ -109,7 +113,7 @@ curl -X POST http://localhost:3000/v1/agent/chat \
 | Server | Description | Transport | Requires API Key |
 |--------|-------------|-----------|------------------|
 | `filesystem` | File system operations | stdio | No |
-| `foundry` | Foundry development tools | stdio | RPC_URL, PRIVATE_KEY |
+| `foundry` | Foundry development tools (modified version) | stdio | RPC_URL, PRIVATE_KEY |
 | `slither-mcp` | Solidity security analysis | stdio | No |
 | `solodit` | Solodit security findings database | stdio | SOLODIT_API_KEY |
 | `postgres` | PostgreSQL database | stdio | DATABASE_URL |

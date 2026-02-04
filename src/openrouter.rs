@@ -6,6 +6,17 @@ use reqwest::Client;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
+fn truncate_str(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 #[derive(Clone)]
 pub struct OpenRouterClient {
     client: Client,
@@ -51,10 +62,18 @@ impl OpenRouterClient {
             });
         }
 
-        let completion: ChatCompletionResponse = response
-            .json()
+        let response_text = response
+            .text()
             .await
-            .map_err(|e| AgentError::ParseError(e.to_string()))?;
+            .map_err(|e| AgentError::ParseError(format!("Failed to get response text: {}", e)))?;
+
+        debug!("Raw API response: {}", truncate_str(&response_text, 2000));
+
+        let completion: ChatCompletionResponse = serde_json::from_str(&response_text)
+            .map_err(|e| {
+                error!("Failed to parse response: {}. Response: {}", e, truncate_str(&response_text, 500));
+                AgentError::ParseError(format!("JSON parse error: {}. Response preview: {}", e, truncate_str(&response_text, 200)))
+            })?;
 
         info!("Received response with {} choices", completion.choices.len());
         Ok(completion)

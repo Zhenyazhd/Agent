@@ -1,7 +1,7 @@
 use axum::{
     extract::State,
     response::{
-        sse::{Event, Sse},
+        sse::{Event, KeepAlive, Sse},
         IntoResponse,
     },
     Json,
@@ -10,6 +10,7 @@ use futures::stream::Stream;
 use serde_json::Value;
 use std::convert::Infallible;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tracing::info;
@@ -338,6 +339,54 @@ pub async fn agent_run(
         steps: response.steps,
         iterations: response.iterations,
     }))
+}
+
+pub async fn agent_run_stream(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<AgentRunRequest>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    info!("Received streaming agent run request");
+
+    let (step_tx, step_rx) = mpsc::channel::<crate::agent::AgentStep>(100);
+    let run_id = Uuid::new_v4().to_string();
+    let run_id_clone = run_id.clone();
+    let agent = state.agent.clone();
+    let message = request.message.clone();
+    let conversation = request.conversation.clone();
+    let system_prompt = request.system_prompt.clone();
+    let model = request.model.clone();
+
+    tokio::spawn(async move {
+        let result = agent
+            .run_stream(&message, conversation, system_prompt, model, step_tx.clone())
+            .await;
+
+        if let Err(e) = result {
+            tracing::error!("Agent run failed: {}", e);
+            let error_step = crate::agent::AgentStep {
+                step_type: crate::agent::StepType::Error,
+                content: format!("Agent error: {}", e),
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+            };
+            let _ = step_tx.send(error_step).await;
+        }
+    });
+    let stream = ReceiverStream::new(step_rx).map(move |step| {
+        let is_done = matches!(
+            step.step_type,
+            crate::agent::StepType::FinalAnswer | crate::agent::StepType::Error
+        );
+        let event_data = serde_json::json!({
+            "id": run_id_clone,
+            "step": step,
+            "done": is_done,
+        });
+        Ok::<_, Infallible>(Event::default().data(event_data.to_string()))
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 #[derive(Debug, serde::Deserialize)]
