@@ -27,31 +27,8 @@ export function SettingsPanel({ settings, onSettingsChange, isConnected }: Setti
   const loadModels = useCallback(async () => {
     setModelsLoading(true);
     try {
-      const data = await fetchModels(settings.apiUrl);
-      let modelsList: Model[] = [];
-      
-      if (Array.isArray(data)) {
-        modelsList = data;
-      } else if (data.data && Array.isArray(data.data)) {
-        modelsList = data.data;
-      } else if (data.models && Array.isArray(data.models)) {
-        modelsList = data.models;
-      }
-      
-      const validModels = modelsList
-        .filter((m: any) => m.id && m.name)
-        .map((m: any) => ({
-          id: m.id,
-          name: m.name || m.id,
-          context_length: m.context_length,
-          pricing: m.pricing,
-        }));
-      
-      if (validModels.length > 0) {
-        setModels(validModels);
-      } else {
-        setModels(POPULAR_MODELS);
-      }
+      const modelsList = await fetchModels(settings.apiUrl);
+      setModels(modelsList.length > 0 ? modelsList : POPULAR_MODELS);
     } catch (error) {
       console.error('Failed to load models, using fallback:', error);
       setModels(POPULAR_MODELS);

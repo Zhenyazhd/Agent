@@ -82,6 +82,34 @@
   height: 18px;
 }
 
+.stop-button {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: #ef4444;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.stop-button:hover {
+  background: #dc2626;
+}
+
+.stop-button:active {
+  transform: scale(0.96);
+}
+
+.stop-button svg {
+  width: 16px;
+  height: 16px;
+}
+
 .chat-input-hint {
   font-size: 12px;
   color: var(--color-text-muted);

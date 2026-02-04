@@ -1,0 +1,251 @@
+.agent-steps-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-secondary);
+  border-left: 1px solid var(--color-border);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.panel-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.activity-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+  color: #16a34a;
+}
+
+.pulse {
+  width: 8px;
+  height: 8px;
+  background: #22c55e;
+  border-radius: 50%;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+.steps-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.empty-steps {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 24px;
+}
+
+.empty-steps svg {
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty-steps p {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.empty-steps span {
+  font-size: 12px;
+}
+
+/* Step Cards */
+.step-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.step-number {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+  min-width: 24px;
+}
+
+.step-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step-label {
+  flex: 1;
+  color: var(--color-text);
+}
+
+/* Step type colors */
+.step-thinking .step-icon { color: #3b82f6; }
+.step-thinking .step-header { background: rgba(59, 130, 246, 0.05); }
+
+.step-tool_call .step-icon { color: #8b5cf6; }
+.step-tool_call .step-header { background: rgba(139, 92, 246, 0.05); }
+
+.step-tool_result .step-icon { color: #10b981; }
+.step-tool_result .step-header { background: rgba(16, 185, 129, 0.05); }
+
+.step-error .step-icon { color: #ef4444; }
+.step-error .step-header { background: rgba(239, 68, 68, 0.05); }
+
+.step-final_answer .step-icon { color: #f59e0b; }
+.step-final_answer .step-header { background: rgba(245, 158, 11, 0.05); }
+
+/* Iteration steps are more compact */
+.step-iteration {
+  background: transparent;
+  border: none;
+  border-left: 2px solid var(--color-border);
+  border-radius: 0;
+  margin-left: 8px;
+}
+
+.step-iteration .step-header {
+  background: transparent;
+  padding: 6px 12px;
+  color: var(--color-text-muted);
+}
+
+/* Step content */
+.step-content {
+  padding: 0 12px 12px;
+  font-size: 12px;
+}
+
+.step-content details {
+  margin: 0;
+}
+
+.step-content summary {
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.step-content summary:hover {
+  color: var(--color-text);
+}
+
+.step-content pre {
+  margin: 8px 0 0;
+  padding: 10px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  color: var(--color-text-secondary);
+}
+
+.thinking-content p,
+.final-content p,
+.error-content p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.error-content p {
+  color: var(--color-error);
+}
+
+/* Current step indicator */
+.current-step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1));
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Scrollbar */
+.steps-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.steps-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.steps-container::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+.steps-container::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}

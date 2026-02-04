@@ -39,8 +39,8 @@ export function McpPanel({ apiUrl }: McpPanelProps) {
   }, [fetchServers]);
 
   const toggleServer = async (serverName: string, enable: boolean) => {
-    const previousServers = servers;
-    
+    const previousServers = servers.map((s) => ({ ...s }));
+
     setServers((prev) =>
       prev.map((server) =>
         server.name === serverName ? { ...server, enabled: enable } : server

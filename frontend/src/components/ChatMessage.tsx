@@ -1,15 +1,16 @@
 import type { Message } from '../types';
-import { AgentSteps } from './AgentSteps';
 import ReactMarkdown from 'react-markdown';
 import '../styles/ChatMessage.css';
 
 interface ChatMessageProps {
   message: Message;
+  isStreaming?: boolean;
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const hasSteps = message.steps && message.steps.length > 0;
+  const showTyping = !isUser && message.content === '' && isStreaming;
 
   return (
     <div className={`chat-message ${isUser ? 'user' : 'assistant'} ${hasSteps ? 'has-steps' : ''}`}>
@@ -26,20 +27,10 @@ export function ChatMessage({ message }: ChatMessageProps) {
           </span>
         </div>
 
-        {hasSteps && (
-          <AgentSteps steps={message.steps!.filter(s => s.step_type !== 'final_answer')} />
-        )}
-
         <div className="message-text">
           {message.content ? (
             <ReactMarkdown>{message.content}</ReactMarkdown>
-          ) : (
-            <span className="typing-indicator">
-              <span></span>
-              <span></span>
-              <span></span>
-            </span>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
