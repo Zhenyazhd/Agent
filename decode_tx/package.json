@@ -1,0 +1,21 @@
+{
+  "name": "decode_for_agent",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "decode:deep": "tsx src/decode-cast.ts",
+    "resolve": "tsx src/resolve-addresses.ts",
+    "check-bytecode": "tsx src/check-bytecode.ts"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "evm-proxy-detection": "^3.0.0",
+    "viem": "^2.45.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
