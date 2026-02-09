@@ -1,4 +1,6 @@
 import { execSync } from 'child_process';
+import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'fs';
+import { join } from 'path';
 import { getPublicClient } from './provider.js';
 
 interface CastTraceNode {
@@ -368,6 +370,232 @@ export async function enrichWithContractMeta(
   return decoded;
 }
 
+// ── TraceDoc: one document per call node ──────────────────────────────
+
+export type AddressRole = 'EOA' | 'Proxy' | 'Token' | 'DEX' | 'Other';
+
+export interface TraceDocLog {
+  name: string | null;
+  topics: string[];
+  data: string;
+  decoded_params: { name: string; value: string }[] | null;
+}
+
+export interface SourceLink {
+  address: string;
+  functionName?: string;
+  filePath?: string;
+  startLine?: number;
+  endLine?: number;
+}
+
+export interface TraceDoc {
+  call_id: number;
+  parent: number | null;
+  children: number[];
+  depth: number;
+
+  from: string;
+  to: string;
+  value: string;
+  success: boolean;
+  call_type: string;
+
+  selector: string | null;
+  signature: string | null;
+  args: string[];
+
+  logs: TraceDocLog[];
+
+  address_role: AddressRole;
+  source_links: SourceLink;
+
+  gas_used: number;
+  gas_limit: number;
+  label: string | null;
+  output: string;
+  input: string;
+}
+
+export interface TxMeta {
+  tx_hash: string;
+  chain_id: number;
+  from: string;
+  to: string;
+  value: string;
+  value_decimal: string;
+  function_signature: string | null;
+  function_args: string[];
+  success: boolean;
+  total_calls: number;
+  max_depth: number;
+  total_gas_used: number;
+  addresses: string[];
+  total_logs: number;
+  trace_doc_count: number;
+}
+
+const DEX_SIG_RE = /swap|liquidity|getAmounts|exactInput|exactOutput/i;
+const DEX_EVENT_RE = /^Swap$/;
+
+function classifyAddressRole(
+  call: EnrichedTraceCall,
+  contractMeta: Record<string, ContractMeta>,
+  resolvedAddresses?: Map<string, { isContract: boolean; isProxy?: boolean }>
+): AddressRole {
+  const addr = call.to.toLowerCase();
+  const meta = contractMeta[addr];
+
+  if (meta) {
+    if (meta.type === 'PROXY') return 'Proxy';
+    if (meta.type === 'ERC20' || meta.type === 'ERC721' || meta.type === 'ERC1155') return 'Token';
+  }
+
+  // resolved address info from address-resolver cache
+  if (resolvedAddresses) {
+    const resolved = resolvedAddresses.get(addr);
+    if (resolved?.isProxy) return 'Proxy';
+    if (resolved && !resolved.isContract) return 'EOA';
+  }
+
+  // DEX heuristic: signature or Swap event
+  if (call.signature && DEX_SIG_RE.test(call.signature)) return 'DEX';
+  if (call.logs.some(l => l.name && DEX_EVENT_RE.test(l.name))) return 'DEX';
+
+  // plain ETH transfer to address with no function call
+  if (!call.signature && call.input === '0x') return 'EOA';
+
+  return 'Other';
+}
+
+function buildSourceLink(call: EnrichedTraceCall): SourceLink {
+  const link: SourceLink = { address: call.to };
+  if (call.signature) {
+    const fnMatch = call.signature.match(/^([^(]+)/);
+    if (fnMatch) link.functionName = fnMatch[1];
+  }
+  return link;
+}
+
+export function buildTraceDocs(
+  decoded: DecodedTransactionWithHierarchy,
+  resolvedAddresses?: Map<string, { isContract: boolean; isProxy?: boolean }>
+): TraceDoc[] {
+  return decoded.traceCalls.map(call => ({
+    call_id: call.index,
+    parent: call.parentIndex,
+    children: call.childrenIndices,
+    depth: call.depth,
+
+    from: call.from,
+    to: call.to,
+    value: call.value,
+    success: call.success,
+    call_type: call.callType,
+
+    selector: call.selector,
+    signature: call.signature,
+    args: call.args,
+
+    logs: call.logs.map(log => ({
+      name: log.name,
+      topics: log.topics,
+      data: log.data,
+      decoded_params: log.params.length > 0
+        ? log.params.map(p => ({ name: p.name, value: p.value }))
+        : null,
+    })),
+
+    address_role: classifyAddressRole(call, decoded.contractMeta, resolvedAddresses),
+    source_links: buildSourceLink(call),
+
+    gas_used: call.gasUsed,
+    gas_limit: call.gasLimit,
+    label: call.label,
+    output: call.output,
+    input: call.input,
+  }));
+}
+
+export function buildTxMeta(decoded: DecodedTransactionWithHierarchy, docCount: number): TxMeta {
+  return {
+    tx_hash: decoded.txHash,
+    chain_id: decoded.chainId,
+    from: decoded.from,
+    to: decoded.to,
+    value: decoded.value,
+    value_decimal: decoded.valueDecimal,
+    function_signature: decoded.functionSignature,
+    function_args: decoded.functionArgs,
+    success: decoded.success,
+    total_calls: decoded.totalCalls,
+    max_depth: decoded.maxDepth,
+    total_gas_used: decoded.totalGasUsed,
+    addresses: decoded.addresses,
+    total_logs: decoded.allLogs.length,
+    trace_doc_count: docCount,
+  };
+}
+
+/**
+ * Enriches source_links with file paths from resolved address JSON files in WORKSPACE.
+ */
+function enrichSourceLinksFromCache(docs: TraceDoc[], workspaceDir: string, chainId: number): void {
+  const cache = new Map<string, { contractName?: string; filePath?: string }>();
+
+  for (const doc of docs) {
+    const addr = doc.to.toLowerCase();
+    if (cache.has(addr)) {
+      const cached = cache.get(addr)!;
+      if (cached.filePath) doc.source_links.filePath = cached.filePath;
+      continue;
+    }
+
+    const addrFile = join(workspaceDir, `${chainId}_${addr}.json`);
+    if (existsSync(addrFile)) {
+      try {
+        const raw = readFileSync(addrFile, 'utf-8');
+        const info = JSON.parse(raw);
+        const entry: { contractName?: string; filePath?: string } = {};
+        if (info.contractName) entry.contractName = info.contractName;
+        entry.filePath = addrFile;
+        cache.set(addr, entry);
+        doc.source_links.filePath = addrFile;
+      } catch {
+        cache.set(addr, {});
+      }
+    } else {
+      cache.set(addr, {});
+    }
+  }
+}
+
+export function writeTraceDocs(
+  decoded: DecodedTransactionWithHierarchy,
+  baseDir: string,
+  resolvedAddresses?: Map<string, { isContract: boolean; isProxy?: boolean }>
+): { dir: string; count: number } {
+  const txDir = join(baseDir, decoded.txHash);
+  mkdirSync(txDir, { recursive: true });
+
+  const docs = buildTraceDocs(decoded, resolvedAddresses);
+
+  // try to enrich source_links from cached address files
+  enrichSourceLinksFromCache(docs, baseDir, decoded.chainId);
+
+  // write each trace doc
+  for (const doc of docs) {
+    const filePath = join(txDir, `trace_${doc.call_id}.json`);
+    writeFileSync(filePath, JSON.stringify(doc, null, 2));
+  }
+
+  // write tx_meta.json
+  const meta = buildTxMeta(decoded, docs.length);
+  writeFileSync(join(txDir, 'tx_meta.json'), JSON.stringify(meta, null, 2));
+
+  return { dir: txDir, count: docs.length };
+}
+
 export function formatTraceHierarchy(decoded: DecodedTransactionWithHierarchy): string {
   const lines: string[] = [];
 
@@ -422,4 +650,5 @@ export function formatTraceHierarchy(decoded: DecodedTransactionWithHierarchy): 
 
   return lines.join('\n');
 }
+
 

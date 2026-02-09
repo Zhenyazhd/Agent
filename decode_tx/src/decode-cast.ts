@@ -6,6 +6,7 @@ import {
   decodeTransactionWithCast,
   enrichWithContractMeta,
   formatTraceHierarchy,
+  writeTraceDocs,
   DecodedTransactionWithHierarchy
 } from './cast-decoder.js';
 
@@ -92,9 +93,10 @@ Supported chains:
     if (!existsSync(WORKSPACE_DIR)) {
       mkdirSync(WORKSPACE_DIR, { recursive: true });
     }
-    const workspaceFile = join(WORKSPACE_DIR, `tx_${txHash}.json`);
-    writeFileSync(workspaceFile, JSON.stringify(decoded, null, 2));
-    console.log(`Saved to: ${workspaceFile}`);
+
+    // write per-call TraceDoc files + tx_meta.json
+    const { dir: txDir, count: docCount } = writeTraceDocs(decoded, WORKSPACE_DIR);
+    console.log(`Wrote ${docCount} trace docs to: ${txDir}`);
 
     if (outputFile) {
       writeFileSync(outputFile, JSON.stringify(decoded, null, 2));
