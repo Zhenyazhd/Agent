@@ -4,9 +4,12 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "decode:deep": "tsx src/decode-cast.ts",
-    "resolve": "tsx src/resolve-addresses.ts",
-    "check-bytecode": "tsx src/check-bytecode.ts"
+    "decode:deep": "tsx src/cli/decode-cast.ts",
+    "enrich": "tsx src/cli/enrich-source.ts",
+    "resolve": "tsx src/cli/resolve-addresses.ts",
+    "check-bytecode": "tsx src/cli/check-bytecode.ts",
+    "pipeline": "tsx src/cli/pipeline.ts",
+    "collapse": "tsx src/cli/collapse.ts"
   },
   "dependencies": {
     "dotenv": "^17.2.3",

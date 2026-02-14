@@ -1,16 +1,14 @@
 #!/usr/bin/env node
 import 'dotenv/config';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
 import {
   decodeTransactionWithCast,
-  enrichWithContractMeta,
   formatTraceHierarchy,
   writeTraceDocs,
-  DecodedTransactionWithHierarchy
-} from './cast-decoder.js';
+} from '../decoder/index.js';
+import type { DecodedTransactionWithHierarchy } from '../decoder/types.js';
 
-const WORKSPACE_DIR = process.env.WORKSPACE_DIR || '/Users/evgenijzdarkin/Documents/future/mcp_rust/agent/WORKSPACE';
+const WORKSPACE_DIR = process.env.WORKSPACE_DIR || '/agent/WORKSPACE';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -20,19 +18,18 @@ async function main() {
 Cast-based Transaction Decoder - Full hierarchy preservation
 
 Usage:
-  npx tsx src/decode-cast.ts <tx_hash> [chain_id] [options]
+  npx tsx src/cli/decode-cast.ts <tx_hash> [chain_id] [options]
 
 Options:
   -o, --output <file>    Save JSON output to file
   -p, --pretty           Print pretty formatted trace
-  -m, --meta             Enrich with contract metadata (slower)
   -j, --json             Output raw JSON to stdout
   -h, --help             Show this help
 
 Examples:
-  npx tsx src/decode-cast.ts 0x1234... 1
-  npx tsx src/decode-cast.ts 0x1234... 1 -o trace.json -p
-  npx tsx src/decode-cast.ts 0x1234... 137 --meta --pretty
+  npx tsx src/cli/decode-cast.ts 0x1234... 1
+  npx tsx src/cli/decode-cast.ts 0x1234... 1 -o trace.json -p
+  npx tsx src/cli/decode-cast.ts 0x1234... 137 --meta --pretty
 
 Supported chains:
   1     - Ethereum Mainnet
@@ -52,11 +49,11 @@ Supported chains:
 
   const outputIndex = args.findIndex(a => a === '-o' || a === '--output');
   let outputFile = outputIndex !== -1 ? args[outputIndex + 1] : null;
-  
+
   if (!outputFile) {
-    const filePathArg = args.find((a, i) => 
-      i > 1 && 
-      !a.startsWith('-') && 
+    const filePathArg = args.find((a, i) =>
+      i > 1 &&
+      !a.startsWith('-') &&
       (a.includes('/') || a.includes('\\') || a.endsWith('.json'))
     );
     if (filePathArg) {
@@ -65,7 +62,6 @@ Supported chains:
   }
 
   const prettyPrint = args.includes('-p') || args.includes('--pretty');
-  const enrichMeta = args.includes('-m') || args.includes('--meta');
   const jsonOutput = args.includes('-j') || args.includes('--json');
 
   if (!txHash.match(/^0x[a-fA-F0-9]{64}$/)) {
@@ -85,17 +81,11 @@ Supported chains:
       process.exit(1);
     }
 
-    if (enrichMeta) {
-      console.log('Enriching with contract metadata...');
-      decoded = await enrichWithContractMeta(decoded);
-    }
-
     if (!existsSync(WORKSPACE_DIR)) {
       mkdirSync(WORKSPACE_DIR, { recursive: true });
     }
 
-    // write per-call TraceDoc files + tx_meta.json
-    const { dir: txDir, count: docCount } = writeTraceDocs(decoded, WORKSPACE_DIR);
+    const { dir: txDir, count: docCount } = await writeTraceDocs(decoded, WORKSPACE_DIR);
     console.log(`Wrote ${docCount} trace docs to: ${txDir}`);
 
     if (outputFile) {
@@ -136,7 +126,7 @@ function printSummary(decoded: DecodedTransactionWithHierarchy) {
   console.log(`Total Calls: ${decoded.totalCalls}`);
   console.log(`Max Depth: ${decoded.maxDepth}`);
   console.log(`Total Logs: ${decoded.allLogs.length}`);
-  console.log(`Gas Used: ${decoded.totalGasUsed.toLocaleString()}`);
+  console.log(`Gas Used: ${decoded.rootGasUsed.toLocaleString()}`);
   console.log('');
 
   const addresses = new Set<string>();

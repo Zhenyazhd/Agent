@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import 'dotenv/config';
-import { resolveAddresses, resolveAddress, WORKSPACE_DIR } from './address-resolver.js';
+import { resolveAddresses, WORKSPACE_DIR } from '../resolver/index.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -11,7 +11,7 @@ async function main() {
         Address Resolver - Determines contract vs EOA, fetches bytecode/ABI
 
         Usage:
-          npx tsx src/resolve-addresses.ts <addresses> [chain_id] [options]
+          npx tsx src/cli/resolve-addresses.ts <addresses> [chain_id] [options]
 
         Arguments:
           addresses    Comma-separated list of addresses, or path to JSON file with addresses array
@@ -27,13 +27,13 @@ async function main() {
 
         Examples:
           # Single address
-          npx tsx src/resolve-addresses.ts 0x1234...abcd 1
+          npx tsx src/cli/resolve-addresses.ts 0x1234...abcd 1
 
           # Multiple addresses
-          npx tsx src/resolve-addresses.ts 0x1234...abcd,0x5678...efgh 1
+          npx tsx src/cli/resolve-addresses.ts 0x1234...abcd,0x5678...efgh 1
 
           # From transaction trace
-          npx tsx src/resolve-addresses.ts $(cat trace.json | jq -r '.addresses | join(",")')
+          npx tsx src/cli/resolve-addresses.ts $(cat trace.json | jq -r '.addresses | join(",")')
 
         Output:
           Saves to: ${WORKSPACE_DIR}/{chainId}_{address}.json
@@ -52,12 +52,9 @@ async function main() {
   const detectType = !args.includes('--no-type');
   const jsonOutput = args.includes('-j') || args.includes('--json');
   const verbose = args.includes('--verbose') || args.includes('-v');
-  
+
   if (verbose) {
-    const originalWarn = console.warn;
-    console.warn = (...args: any[]) => {
-      originalWarn(...args);
-    };
+    console.warn = () => {};
   }
 
   let addresses: string[];
@@ -77,7 +74,7 @@ async function main() {
   const results = await resolveAddresses(addresses, chainId, {
     useCache,
     fetchAbi,
-    fetchSourceCode: true, 
+    fetchSourceCode: true,
     detectType,
     concurrency: 3,
     onProgress: (resolved, total) => {
@@ -117,7 +114,6 @@ async function main() {
       const abiStr = info.abi ? '✓ ABI' : '';
       const proxyStr = info.isProxy ? `→ ${info.implementation?.slice(0, 10)}...` : '';
       const nameStr = info.name || info.symbol || '';
-
       console.log(`${addr.slice(0, 10)}... ${typeStr.padEnd(8)} ${abiStr.padEnd(6)} ${proxyStr.padEnd(15)} ${nameStr}`);
     }
   }
