@@ -3,3 +3,4 @@
 Cargo.lock
 *.log
 mcp_config.json
+node_modules

@@ -49,10 +49,8 @@ pub struct JsonRpcError {
 
 pub fn parse_sse_response(body: &str) -> String {
     body.lines()
-        .filter(|line| line.starts_with("data:"))
-        .filter_map(|line| line.strip_prefix("data:").map(|s| s.trim()))
-        .filter(|s| !s.is_empty())
-        .last()
+        .rev()
+        .find_map(|line| line.strip_prefix("data:").map(|s| s.trim()))
         .unwrap_or(body)
         .to_string()
 }

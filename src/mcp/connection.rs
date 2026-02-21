@@ -26,19 +26,12 @@ impl McpTransport {
         args: &[String],
         env: &HashMap<String, String>,
     ) -> Result<Self> {
-        let (cmd, extra_args) = if command.contains(' ') {
-            let parts: Vec<&str> = command.split_whitespace().collect();
-            (parts[0].to_string(), parts[1..].to_vec())
-        } else {
-            (command.to_string(), vec![])
-        };
+        let mut parts = shell_words::split(command)
+            .context("Failed to parse command")?;
+        let cmd = parts.remove(0);
 
         let mut process_cmd = Command::new(&cmd);
-
-        for arg in extra_args {
-            process_cmd.arg(arg);
-        }
-
+        process_cmd.args(parts);
         process_cmd.args(args);
         process_cmd.stdin(Stdio::piped());
         process_cmd.stdout(Stdio::piped());

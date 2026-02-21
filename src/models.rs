@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -11,6 +10,20 @@ pub enum Role {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionCall {
+    pub name: String,
+    pub arguments: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub call_type: String,
+    pub function: FunctionCall,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -18,23 +31,9 @@ pub struct Message {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<MessageToolCall>>,
+    pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageToolCall {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub call_type: String,
-    pub function: MessageFunctionCall,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageFunctionCall {
-    pub name: String,
-    pub arguments: String,
 }
 
 impl Message {
@@ -58,24 +57,19 @@ impl Message {
         }
     }
 
-    pub fn assistant(content: impl Into<String>) -> Self {
+    pub fn assistant(content: Option<String>) -> Self {
         Self {
             role: Role::Assistant,
-            content: Some(content.into()),
+            content,
             name: None,
             tool_calls: None,
             tool_call_id: None,
         }
     }
 
-    pub fn assistant_with_tool_calls(content: Option<String>, tool_calls: Vec<MessageToolCall>) -> Self {
-        Self {
-            role: Role::Assistant,
-            content,
-            name: None,
-            tool_calls: Some(tool_calls),
-            tool_call_id: None,
-        }
+    pub fn with_tool_calls(mut self, tool_calls: Vec<ToolCall>) -> Self {
+        self.tool_calls = Some(tool_calls);
+        self
     }
 
     pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
@@ -145,96 +139,10 @@ pub struct ResponseMessage {
     pub tool_calls: Option<Vec<ToolCall>>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ToolCall {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub call_type: String,
-    pub function: FunctionCall,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FunctionCall {
-    pub name: String,
-    pub arguments: String,
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Usage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub total_tokens: u32,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ChatCompletionChunk {
-    pub id: String,
-    pub choices: Vec<StreamChoice>,
-    pub model: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct StreamChoice {
-    pub index: u32,
-    pub delta: Delta,
-    pub finish_reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Delta {
-    pub role: Option<String>,
-    pub content: Option<String>,
-    pub tool_calls: Option<Vec<ToolCallDelta>>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ToolCallDelta {
-    pub index: u32,
-    pub id: Option<String>,
-    #[serde(rename = "type")]
-    pub call_type: Option<String>,
-    pub function: Option<FunctionCallDelta>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FunctionCallDelta {
-    pub name: Option<String>,
-    pub arguments: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AgentRequest {
-    pub messages: Vec<Message>,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default)]
-    pub temperature: Option<f32>,
-    #[serde(default)]
-    pub max_tokens: Option<u32>,
-    #[serde(default)]
-    pub stream: Option<bool>,
-    #[serde(default)]
-    pub system_prompt: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AgentResponse {
-    pub id: String,
-    pub content: String,
-    pub model: String,
-    pub usage: Option<UsageInfo>,
-    pub finish_reason: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UsageInfo {
-    pub prompt_tokens: u32,
-    pub completion_tokens: u32,
-    pub total_tokens: u32,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ErrorResponse {
-    pub error: String,
-    pub code: String,
-}

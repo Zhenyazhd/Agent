@@ -12,16 +12,13 @@ pub enum AgentError {
     ConfigError(String),
 
     #[error("Request failed: {0}")]
-    RequestFailed(String),
+    RequestFailed(#[from] reqwest::Error),
 
     #[error("API error (status {status}): {message}")]
     ApiError { status: u16, message: String },
 
     #[error("Parse error: {0}")]
-    ParseError(String),
-
-    #[error("Stream error: {0}")]
-    StreamError(String),
+    ParseError(#[from] serde_json::Error),
 
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
@@ -33,35 +30,61 @@ pub enum AgentError {
     ToolError(String),
 }
 
+impl From<envy::Error> for AgentError {
+    fn from(error: envy::Error) -> Self {
+        AgentError::ConfigError(error.to_string())
+    }
+}
+
+impl From<anyhow::Error> for AgentError {
+    fn from(error: anyhow::Error) -> Self {
+        AgentError::Internal(error.to_string())
+    }
+}
+
+impl From<std::io::Error> for AgentError {
+    fn from(error: std::io::Error) -> Self {
+        AgentError::ToolError(error.to_string())
+    }
+}
+
+impl From<regex::Error> for AgentError {
+    fn from(error: regex::Error) -> Self {
+        AgentError::ConfigError(error.to_string())
+    }
+}
+
+impl AgentError {
+    pub fn status_code(&self) -> StatusCode {
+        match self {
+            AgentError::ConfigError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AgentError::RequestFailed(_) => StatusCode::BAD_GATEWAY,
+            AgentError::ApiError { status, .. } => {
+                StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY)
+            }
+            AgentError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    fn error_code(&self) -> &'static str {
+        match self {
+            AgentError::ConfigError(_) => "CONFIG_ERROR",
+            AgentError::RequestFailed(_) => "REQUEST_FAILED",
+            AgentError::ApiError { .. } => "API_ERROR",
+            AgentError::ParseError(_) => "PARSE_ERROR",
+            AgentError::InvalidRequest(_) => "INVALID_REQUEST",
+            AgentError::Internal(_) => "INTERNAL_ERROR",
+            AgentError::ToolError(_) => "TOOL_ERROR",
+        }
+    }
+}
+
 impl IntoResponse for AgentError {
     fn into_response(self) -> Response {
-        let (status, code, message) = match &self {
-            AgentError::ConfigError(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "CONFIG_ERROR", msg.clone())
-            }
-            AgentError::RequestFailed(msg) => {
-                (StatusCode::BAD_GATEWAY, "REQUEST_FAILED", msg.clone())
-            }
-            AgentError::ApiError { status, message } => {
-                let status_code = StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY);
-                (status_code, "API_ERROR", message.clone())
-            }
-            AgentError::ParseError(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "PARSE_ERROR", msg.clone())
-            }
-            AgentError::StreamError(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "STREAM_ERROR", msg.clone())
-            }
-            AgentError::InvalidRequest(msg) => {
-                (StatusCode::BAD_REQUEST, "INVALID_REQUEST", msg.clone())
-            }
-            AgentError::Internal(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", msg.clone())
-            }
-            AgentError::ToolError(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "TOOL_ERROR", msg.clone())
-            }
-        };
+        let status = self.status_code();
+        let code = self.error_code();
+        let message = self.to_string();
 
         let body = Json(json!({
             "error": message,

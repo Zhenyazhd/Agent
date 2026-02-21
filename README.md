@@ -1,122 +1,124 @@
-# LLM Agent Server
+# llm-agent
 
-A learning project built to understand how LLM agents work and to gain deeper knowledge of Rust. This project implements an agent server that connects Large Language Models (LLMs) from OpenRouter with external tools through the Model Context Protocol (MCP).
+A personal learning project — built to understand how LLM agents work under the hood and to get hands-on experience with Rust.
 
-![LLM Agent Interface](image.png)
+An LLM agent server written in Rust. Connects large language models (via [OpenRouter](https://openrouter.ai)) with external tools through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), and exposes everything over an HTTP API with streaming support.
 
-### Project Structure
+## What it does
 
-```
-agent/
-├── Cargo.toml
-├── .env.example
-├── mcp_config.json          # MCP server configuration
-├── src/
-│   ├── main.rs              # HTTP server entry point
-│   ├── config.rs            # Configuration from environment variables
-│   ├── models.rs            # Data models (requests/responses)
-│   ├── openrouter.rs        # OpenRouter API client
-│   ├── handlers.rs          # HTTP request handlers
-│   ├── agent.rs             # Agent orchestration logic
-│   ├── error.rs             # Error handling
-│   └── mcp/                 # MCP protocol implementation
-│       ├── manager.rs       # MCP server management
-│       ├── connection.rs    # Transport layer (stdio/HTTP)
-│       ├── protocol.rs      # MCP protocol definitions
-│       └── types.rs         # MCP data types
-└── frontend/                # React frontend
-    └── src/
-        ├── components/      # UI components
-        ├── hooks/           # React hooks
-        ├── api/             # API client
-        └── styles/          # CSS styles
-```
+- Runs an LLM in a **ReAct loop** — the model reasons, calls tools, observes results, and repeats until it produces a final answer
+- Connects to any number of **MCP servers** (filesystem, databases, blockchains, custom tools) over stdio or HTTP
+- Streams agent steps to the client in real time over **SSE**
+- Manages **context window automatically** — compacts conversation history with LLM summarization when approaching token limits
+- Includes a specialized **Pipeline mode** for multi-pass blockchain transaction analysis
 
-## Quick Start
+## Quick start
 
-### Prerequisites
-
-- Rust (latest stable)
-- Node.js 22+ (for frontend)
-- OpenRouter API key ([get one here](https://openrouter.ai/))
-
-### Backend Setup
-
-1. Clone and navigate to the project:
-```bash
-cd agent
-```
-
-2. Copy environment template and add your API key:
 ```bash
 cp .env.example .env
-```
-
-3. Run the server:
-```bash
 cargo run
 ```
 
-The server will start on `http://localhost:3000`
+Server starts on `http://localhost:3000`.
 
-### Frontend Setup
+## Configuration
 
-1. Navigate to frontend directory:
-```bash
-cd frontend
+All config is via environment variables (`.env` file supported).
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENROUTER_API_KEY` | — | **Required.** Your OpenRouter API key |
+| `DEFAULT_MODEL` | `anthropic/claude-3.5-sonnet` | LLM model to use |
+| `AGENT_MODE` | `free` | `free` (ReAct loop) or `pipeline` (tx analysis) |
+| `SERVER_HOST` | `0.0.0.0` | HTTP server host |
+| `SERVER_PORT` | `3000` | HTTP server port |
+| `WORKSPACE_DIR` | `./WORKSPACE` | Directory for agent file output |
+| `MAX_ITERATIONS` | `50` | Max agent loop iterations |
+| `MAX_TOOL_RESULT_CHARS` | `100000` | Large tool outputs are saved to file instead |
+| `MAX_PARALLEL_LLM_CALLS` | `4` | Concurrency limit for pipeline mode |
+
+## MCP servers
+
+Configure MCP servers in `mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx -y @modelcontextprotocol/server-filesystem /path/to/dir"
+    },
+    "my-api": {
+      "type": "streamable-http",
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}
 ```
 
-2. Install dependencies:
-```bash
-npm install
+Environment variable substitution is supported: `"${MY_SECRET}"`.
+
+## API
+
+### Run agent (blocking)
+
+```
+POST /agent/run
+```
+```json
+{
+  "message": "List files in /tmp and summarize them",
+  "conversation": [],
+  "model": "anthropic/claude-3.5-sonnet"
+}
 ```
 
-3. Start development server:
-```bash
-npm run dev
+### Run agent (streaming)
+
+```
+POST /agent/run/stream
 ```
 
-The frontend will be available at `http://localhost:5173`
+Returns `text/event-stream`. Each event contains an `AgentStep` with `step_type` (`Thinking`, `ToolCall`, `ToolResult`, `FinalAnswer`, `Error`) and `done: true` on the last event.
 
-## API Endpoints
+### MCP endpoints
 
-Primary API is under **`/v1/agent/*`** (SDK and docs use these).
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Health check with MCP server status |
-| `POST` | `/v1/agent/chat` | Agent chat (single response) |
-| `POST` | `/v1/agent/chat/stream` | Agent chat streaming (SSE) |
-| `POST` | `/v1/agent/run` | Agent execution with tools |
-| `POST` | `/v1/agent/run/stream` | Agent run streaming (SSE) |
-| `GET` | `/v1/agent/tools` | List available MCP tools |
-| `GET` | `/v1/models` | List available models from OpenRouter |
-
-*OpenAI-compatible aliases:* `POST /v1/chat/completions`, `POST /v1/chat/completions/stream`.
-| `GET` | `/v1/mcp/servers` | List MCP servers and their status |
-| `POST` | `/v1/mcp/servers/enable` | Enable an MCP server |
-| `POST` | `/v1/mcp/servers/disable` | Disable an MCP server |
-
-### Example Request
-
-```bash
-curl -X POST http://localhost:3000/v1/agent/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "Hello, who are you?",
-    "model": "openai/gpt-4o-mini"
-  }'
+```
+GET  /mcp/tools              — list all available tools
+GET  /mcp/servers            — list servers and their status
+POST /mcp/tools/call         — call a tool directly
+POST /mcp/servers/enable     — enable a server at runtime
+POST /mcp/servers/disable    — disable a server at runtime
 ```
 
-### Popular MCP Servers
+## Project structure
 
-| Server | Description | Transport | Requires API Key |
-|--------|-------------|-----------|------------------|
-| `filesystem` | File system operations | stdio | No |
-| `foundry` | Foundry development tools (modified version) | stdio | RPC_URL, PRIVATE_KEY |
-| `slither-mcp` | Solidity security analysis | stdio | No |
-| `solodit` | Solodit security findings database | stdio | SOLODIT_API_KEY |
-| `postgres` | PostgreSQL database | stdio | DATABASE_URL |
-| `OpenZeppelinSolidityContracts` | OpenZeppelin contract templates | http | No |
-| `blockscout` | Blockscout blockchain explorer | http | No |
+```
+src/
+├── main.rs              # Entry point: config, MCP init, Axum server
+├── config.rs            # Config struct (loaded from env vars)
+├── error.rs             # AgentError enum + Axum IntoResponse impl
+├── models.rs            # OpenAI-compatible types (Message, Tool, ToolCall, …)
+├── state.rs             # AppState — shared state passed to every handler
+│
+├── agent/
+│   ├── mod.rs           # Agent struct, AgentStep, StepType
+│   ├── tools.rs         # MCP tool name encoding; get_tools / execute_tool
+│   ├── history.rs       # History compaction (simple trim + LLM summarization)
+│   ├── token_budget.rs  # Token tracking and model context window registry
+│   ├── prompts.rs       # All system prompts and prompt builder functions
+│   ├── free/            # ReAct loop implementation
+│   └── pipeline/        # Multi-pass blockchain transaction analysis
+│       └── passes/      # Pass 1 (parallel facts), Pass 2 (parallel analysis), Pass 3 (synthesis)
+│
+├── handlers/            # Axum route handlers (thin wrappers over Agent / McpManager)
+├── infrastructure/      # OpenRouterClient, file_handler (large output to disk)
+└── mcp/                 # MCP protocol: transport (stdio/HTTP), manager, JSON-RPC
+```
 
+## Dependencies
+
+- **[axum](https://github.com/tokio-rs/axum)** — HTTP server
+- **[tokio](https://tokio.rs)** — async runtime
+- **[reqwest](https://github.com/seanmonstar/reqwest)** — HTTP client (OpenRouter + MCP HTTP transport)
+- **[serde / serde_json](https://serde.rs)** — serialization
+- **[tracing](https://github.com/tokio-rs/tracing)** — structured logging
