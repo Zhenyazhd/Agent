@@ -4,7 +4,6 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::Path;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 
@@ -63,7 +62,6 @@ impl McpServerInstance {
             }
         }
 
-        // Discover resources
         if let Ok(resources_result) = self.send_request("resources/list", None).await {
             if let Some(resources) = resources_result.get("resources") {
                 self.resources = serde_json::from_value(resources.clone()).unwrap_or_default();
@@ -76,9 +74,9 @@ impl McpServerInstance {
 }
 
 pub struct McpManager {
-    servers: Arc<RwLock<HashMap<String, McpServerInstance>>>,
-    config: Arc<RwLock<McpConfig>>,
-    enabled_servers: Arc<RwLock<HashSet<String>>>,
+    servers: RwLock<HashMap<String, McpServerInstance>>,
+    config: RwLock<McpConfig>,
+    enabled_servers: RwLock<HashSet<String>>,
     http_client: HttpClient,
 }
 
@@ -91,16 +89,12 @@ impl McpManager {
     }
 
     fn expand_env_vars(content: &str) -> String {
-        let mut result = content.to_string();
         let re = regex::Regex::new(r"\$\{(\w+)\}").unwrap();
 
-        for cap in re.captures_iter(content) {
-            let var_name = &cap[1];
-            let var_value = env::var(var_name).unwrap_or_default();
-            result = result.replace(&cap[0], &var_value);
-        }
-
-        result
+        re.replace_all(content, |caps: &regex::Captures| {
+            env::var(&caps[1]).unwrap_or_default()
+        })
+        .to_string()
     }
 
     pub fn new(config: McpConfig) -> Self {
@@ -112,9 +106,9 @@ impl McpManager {
             .collect();
 
         Self {
-            servers: Arc::new(RwLock::new(HashMap::new())),
-            config: Arc::new(RwLock::new(config)),
-            enabled_servers: Arc::new(RwLock::new(enabled)),
+            servers: RwLock::new(HashMap::new()),
+            config: RwLock::new(config),
+            enabled_servers: RwLock::new(enabled),
             http_client: HttpClient::new(),
         }
     }
@@ -251,47 +245,18 @@ impl McpManager {
         if !self.enabled_servers.read().await.contains(server_name) {
             anyhow::bail!("Server {} is disabled", server_name);
         }
-
         let mut servers = self.servers.write().await;
         let instance = servers
             .get_mut(server_name)
             .context(format!("Server {} not connected", server_name))?;
-
         let params = serde_json::json!({
             "name": tool_name,
             "arguments": arguments
         });
-
         instance.send_request("tools/call", Some(params)).await
     }
 
-    pub async fn call_tool_by_full_name(
-        &self,
-        full_name: &str,
-        arguments: Value,
-    ) -> Result<Value> {
-        let parts: Vec<&str> = full_name.splitn(2, '_').collect();
-        if parts.len() != 2 {
-            anyhow::bail!("Invalid tool name format: {}", full_name);
-        }
-
-        let server_name = parts[0];
-        let tool_name = parts[1];
-
-        self.call_tool(server_name, tool_name, arguments).await
-    }
-
-    pub async fn call_tool_text(
-        &self,
-        server_name: &str,
-        tool_name: &str,
-        arguments: Value,
-    ) -> Result<String> {
-        let result = self.call_tool(server_name, tool_name, arguments).await?;
-        Ok(Self::extract_text(&result))
-    }
-
-    fn extract_text(result: &Value) -> String {
+    pub fn extract_text(result: &Value) -> String {
         if let Some(content) = result.get("content") {
             if let Some(arr) = content.as_array() {
                 return arr
