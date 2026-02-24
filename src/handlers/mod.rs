@@ -7,6 +7,7 @@ pub use mcp::{mcp_call_tool, get_mcp_servers, get_mcp_tools, get_agent_tools as 
 
 use std::sync::Arc;
 use axum::{extract::State, response::{IntoResponse, Json}};
+use crate::config::AgentMode;
 use crate::error::AgentError;
 
 pub async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -29,4 +30,22 @@ pub async fn list_models(
 ) -> Result<Json<serde_json::Value>, AgentError> {
     let models = state.client.list_models().await?;
     Ok(Json(models))
+}
+
+pub async fn get_agent_mode(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let mode = state.agent.get_mode().await;
+    Json(serde_json::json!({ "mode": mode }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct SetModeRequest {
+    pub mode: AgentMode,
+}
+
+pub async fn set_agent_mode(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SetModeRequest>,
+) -> impl IntoResponse {
+    state.agent.set_mode(body.mode.clone()).await;
+    Json(serde_json::json!({ "mode": body.mode }))
 }

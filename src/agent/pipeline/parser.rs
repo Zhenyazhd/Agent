@@ -1,4 +1,37 @@
 
+#[derive(serde::Deserialize)]
+struct PipelineJson {
+    chain_id: String,
+    tx_hashes: Vec<String>,
+}
+
+pub fn extract_all_tx_params(message: &str) -> Option<(Vec<String>, u64)> {
+    if let Ok(p) = serde_json::from_str::<PipelineJson>(message) {
+        let chain_id: u64 = p.chain_id.parse().ok()?;
+        return Some((p.tx_hashes, chain_id));
+    }
+    let mut hashes = Vec::new();
+    let bytes = message.as_bytes();
+    let mut i = 0;
+    while i + 2 < bytes.len() {
+        if bytes[i] == b'0' && bytes[i + 1] == b'x' {
+            let start = i + 2;
+            let end = start + 64;
+            if end <= bytes.len() && message[start..end].chars().all(|c| c.is_ascii_hexdigit()) {
+                hashes.push(format!("0x{}", &message[start..end]));
+                i = end;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if hashes.is_empty() {
+        return None;
+    }
+    let (_, chain_id) = extract_tx_params(message)?;
+    Some((hashes, chain_id))
+}
+
 pub fn extract_tx_params(message: &str) -> Option<(String, u64)> {
     let tx_hash = if let Some(pos) = message.find("0x") {
         let rest = &message[pos + 2..];

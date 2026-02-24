@@ -1,8 +1,25 @@
 import type { ChatRequest, ChatResponse, StreamChunk, AgentRunResponse, AgentStreamChunk, Tool, Model } from '../types';
 import { extractModels } from '../types';
+import { env } from '../env.ts';
 
-const DEFAULT_API_URL =
-  import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+const DEFAULT_API_URL = env.VITE_API_URL ?? 'http://localhost:3000';
+
+async function fetchWithTimeout(
+  input: RequestInfo,
+  init: RequestInit & { timeoutMs?: number } = {}
+): Promise<Response> {
+  const { timeoutMs = 30_000, signal: callerSignal, ...rest } = init;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  const signal = callerSignal
+    ? AbortSignal.any([controller.signal, callerSignal])
+    : controller.signal;
+  try {
+    return await fetch(input, { ...rest, signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
 
 async function parseHttpError(response: Response): Promise<Error> {
   let message = `HTTP error: ${response.status}`;
@@ -60,7 +77,10 @@ async function* parseSSEStream<T>(
             stopRef.seen = true;
             return;
           }
-        } catch {
+        } catch (err) {
+          if (env.DEV) {
+            console.warn('[SSE] Failed to parse chunk as JSON:', data, err);
+          }
         }
       }
     }
@@ -115,7 +135,7 @@ export async function sendMessage(
   apiUrl: string = DEFAULT_API_URL,
   signal?: AbortSignal
 ): Promise<ChatResponse> {
-  const response = await fetch(`${apiUrl}/v1/agent/chat`, {
+  const response = await fetchWithTimeout(`${apiUrl}/v1/agent/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -136,19 +156,23 @@ export async function* sendMessageStream(
   apiUrl: string = DEFAULT_API_URL,
   signal?: AbortSignal
 ): AsyncGenerator<StreamChunk> {
-  const response = await fetch(`${apiUrl}/v1/agent/chat/stream`, {
+  const systemMessage = request.system_prompt
+  ? [{ role: 'system' as const, content: request.system_prompt }]
+  : [];
+
+  const messages = [
+    ...systemMessage,
+    ...request.conversation,
+    { role: 'user' as const, content: request.message },
+  ];
+  
+  const response = await fetchWithTimeout(`${apiUrl}/v1/agent/chat/stream`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      messages: [
-        ...(request.system_prompt
-          ? [{ role: 'system', content: request.system_prompt }]
-          : []),
-        ...request.conversation,
-        { role: 'user', content: request.message },
-      ],
+      messages: messages,
       model: request.model,
       temperature: request.temperature,
       max_tokens: request.max_tokens,
@@ -169,7 +193,7 @@ export async function runAgent(
   apiUrl: string = DEFAULT_API_URL,
   signal?: AbortSignal
 ): Promise<AgentRunResponse> {
-  const response = await fetch(`${apiUrl}/v1/agent/run`, {
+  const response = await fetchWithTimeout(`${apiUrl}/v1/agent/run`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -195,7 +219,7 @@ export async function* runAgentStream(
   apiUrl: string = DEFAULT_API_URL,
   signal?: AbortSignal
 ): AsyncGenerator<AgentStreamChunk> {
-  const response = await fetch(`${apiUrl}/v1/agent/run/stream`, {
+  const response = await fetchWithTimeout(`${apiUrl}/v1/agent/run/stream`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -205,6 +229,7 @@ export async function* runAgentStream(
       conversation: request.conversation,
       system_prompt: request.system_prompt,
       model: request.model,
+      mode: request.mode,
     }),
     signal,
   });
@@ -223,7 +248,7 @@ export async function* runAgentStream(
 }
 
 export async function fetchTools(apiUrl: string = DEFAULT_API_URL): Promise<Tool[]> {
-  const response = await fetch(`${apiUrl}/v1/agent/tools`);
+  const response = await fetchWithTimeout(`${apiUrl}/v1/agent/tools`);
   if (!response.ok) {
     throw await parseHttpError(response);
   }
@@ -232,7 +257,7 @@ export async function fetchTools(apiUrl: string = DEFAULT_API_URL): Promise<Tool
 }
 
 export async function fetchModels(apiUrl: string = DEFAULT_API_URL): Promise<Model[]> {
-  const response = await fetch(`${apiUrl}/v1/models`);
+  const response = await fetchWithTimeout(`${apiUrl}/v1/models`);
   if (!response.ok) {
     throw await parseHttpError(response);
   }
@@ -240,9 +265,58 @@ export async function fetchModels(apiUrl: string = DEFAULT_API_URL): Promise<Mod
   return extractModels(data);
 }
 
+export interface McpServer {
+  name: string;
+  enabled: boolean;
+  connected: boolean;
+  transport_type: string;
+  tools_count: number;
+  tools: string[];
+}
+
+export async function fetchMcpServers(
+  apiUrl: string = DEFAULT_API_URL,
+  signal?: AbortSignal
+): Promise<McpServer[]> {
+  const response = await fetchWithTimeout(`${apiUrl}/v1/mcp/servers`, { signal });
+  if (!response.ok) throw await parseHttpError(response);
+  const data = await response.json();
+  return data.mcp_enabled ? (data.servers ?? []) : [];
+}
+
+export async function toggleMcpServer(
+  serverName: string,
+  enable: boolean,
+  apiUrl: string = DEFAULT_API_URL,
+  signal?: AbortSignal
+): Promise<McpServer[]> {
+  const endpoint = enable ? 'enable' : 'disable';
+  const response = await fetchWithTimeout(`${apiUrl}/v1/mcp/servers/${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ server_name: serverName }),
+    signal,
+  });
+  if (!response.ok) throw await parseHttpError(response);
+  const data = await response.json();
+  return data.servers ?? [];
+}
+
+export async function setAgentMode(
+  mode: 'free' | 'pipeline',
+  apiUrl: string = DEFAULT_API_URL,
+): Promise<void> {
+  await fetchWithTimeout(`${apiUrl}/v1/agent/mode`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+    timeoutMs: 5_000,
+  });
+}
+
 export async function healthCheck(apiUrl: string = DEFAULT_API_URL): Promise<boolean> {
   try {
-    const response = await fetch(`${apiUrl}/health`);
+    const response = await fetchWithTimeout(`${apiUrl}/health`, { timeoutMs: 5_000 });
     return response.ok;
   } catch {
     return false;

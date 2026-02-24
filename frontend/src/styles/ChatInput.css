@@ -61,6 +61,8 @@
   justify-content: center;
   transition: all var(--transition);
   flex-shrink: 0;
+  /* nudge up so icon visually aligns with single-row textarea text */
+  margin-bottom: 4px;
 }
 
 .send-button:hover:not(:disabled) {
@@ -95,6 +97,7 @@
   transition: all var(--transition);
   flex-shrink: 0;
   cursor: pointer;
+  margin-bottom: 4px;
 }
 
 .stop-button:hover {

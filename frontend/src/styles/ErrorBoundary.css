@@ -1,0 +1,25 @@
+.error-boundary {
+    padding: 24px;
+}
+  
+.error-boundary__title {
+    margin: 0 0 8px;
+}
+  
+.error-boundary__text {
+    margin: 0 0 16px;
+    opacity: 0.8;
+}
+  
+.error-boundary__actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+  
+.error-boundary__details {
+    margin-top: 16px;
+    font-size: 12px;
+    opacity: 0.8;
+    white-space: pre-wrap;
+}

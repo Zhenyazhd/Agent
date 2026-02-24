@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
+import { Send, Square } from 'lucide-react';
 import '../styles/ChatInput.css';
 
 interface ChatInputProps {
@@ -9,30 +10,46 @@ interface ChatInputProps {
   placeholder?: string;
 }
 
-export function ChatInput({ onSend, onStop, disabled = false, isLoading = false, placeholder = 'Type a message...' }: ChatInputProps) {
+export function ChatInput({ 
+  onSend, 
+  onStop, 
+  disabled = false, 
+  isLoading = false, 
+  placeholder = 'Type a message...' 
+}: ChatInputProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const canSend = input.trim().length > 0 && !disabled && !isLoading;
 
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
-    }
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const rafId = requestAnimationFrame(() => {
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+    });
+    return () => cancelAnimationFrame(rafId);
   }, [input]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+
+  const submit = useCallback(() => {
+    const text = input.trim();
+    if (!text || disabled || isLoading) return;
+  
+    onSend(text);
+    setInput('');
+  }, [input, disabled, isLoading, onSend]);
+
+  const handleSubmit = (e: React.SyntheticEvent) => {
     e.preventDefault();
-    if (input.trim() && !disabled) {
-      onSend(input);
-      setInput('');
-    }
+    submit();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
+    if (e.key !== 'Enter') return;
+    if (e.shiftKey) return;
+    e.preventDefault();
+    submit();
   };
 
   return (
@@ -56,33 +73,16 @@ export function ChatInput({ onSend, onStop, disabled = false, isLoading = false,
               onClick={onStop}
               title="Stop generation"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
+              <Square className="stop-button-svg" />
             </button>
           ) : (
             <button
               type="submit"
               className="send-button"
-              disabled={disabled || !input.trim()}
+              disabled={!canSend}
               title="Send message"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="22" y1="2" x2="11" y2="13"></line>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-              </svg>
+              <Send className="send-button-svg" />
             </button>
           )}
         </div>

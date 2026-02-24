@@ -15,6 +15,7 @@ export interface ChatRequest {
   model?: string;
   temperature?: number;
   max_tokens?: number;
+  mode?: AppMode;
 }
 
 export interface ChatResponse {
@@ -34,13 +35,15 @@ export interface StreamChunk {
   finish_reason?: string;
 }
 
+export type AppMode = 'free' | 'pipeline';
+
 export interface Settings {
   apiUrl: string;
   model: string;
   temperature: number;
   maxTokens: number;
   systemPrompt: string;
-  agentMode: boolean;
+  mode: AppMode;
 }
 
 export interface Model {

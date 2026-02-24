@@ -21,7 +21,8 @@ use crate::config::Config;
 use crate::handlers::{
     agent_run, agent_run_stream,
     disable_mcp_server, enable_mcp_server, get_mcp_servers, get_mcp_tools, get_tools,
-    health_check, list_models, mcp_call_tool, AppState,
+    health_check, list_models, mcp_call_tool,
+    get_agent_mode, set_agent_mode, AppState,
 };
 use crate::mcp::McpManager;
 
@@ -80,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/agent/run", post(agent_run))
         .route("/v1/agent/run/stream", post(agent_run_stream))
         .route("/v1/agent/tools", get(get_tools))
+        .route("/v1/agent/mode", get(get_agent_mode).post(set_agent_mode))
         .route("/v1/mcp/servers", get(get_mcp_servers))
         .route("/v1/mcp/servers/enable", post(enable_mcp_server))
         .route("/v1/mcp/servers/disable", post(disable_mcp_server))

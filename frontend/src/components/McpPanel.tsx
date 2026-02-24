@@ -1,14 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Monitor, ChevronDown, ChevronRight } from 'lucide-react';
+import { fetchMcpServers, toggleMcpServer } from '../api/client';
+import type { McpServer } from '../api/client';
 import '../styles/McpPanel.css';
-
-interface McpServer {
-  name: string;
-  enabled: boolean;
-  connected: boolean;
-  transport_type: string;
-  tools_count: number;
-  tools: string[];
-}
 
 interface McpPanelProps {
   apiUrl: string;
@@ -20,57 +14,92 @@ export function McpPanel({ apiUrl }: McpPanelProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [isOpen, setIsOpen] = useState(false);
 
-  const fetchServers = useCallback(async () => {
+  const pendingTogglesRef = useRef<Set<string>>(new Set());
+  const toggleControllersRef = useRef<Set<AbortController>>(new Set());
+
+  useEffect(() => {
+    return () => toggleControllersRef.current.forEach((c) => c.abort());
+  }, []);
+
+  const loadServers = useCallback(async (signal?: AbortSignal) => {
     try {
-      const response = await fetch(`${apiUrl}/v1/mcp/servers`);
-      const data = await response.json();
-      if (data.mcp_enabled) {
-        setServers(data.servers);
-      }
+      const fresh = await fetchMcpServers(apiUrl, signal);
+      setServers((prev) =>
+        fresh.map((s) =>
+          pendingTogglesRef.current.has(s.name)
+            ? (prev.find((p) => p.name === s.name) ?? s)
+            : s
+        )
+      );
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
       console.error('Failed to fetch MCP servers:', error);
     }
   }, [apiUrl]);
 
   useEffect(() => {
-    fetchServers();
-    const interval = setInterval(fetchServers, 30000);
-    return () => clearInterval(interval);
-  }, [fetchServers]);
+    const controller = new AbortController();
+    loadServers(controller.signal);
+    return () => controller.abort();
+  }, [loadServers]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let currentController: AbortController | null = null;
+
+    const poll = async () => {
+      currentController = new AbortController();
+      const { signal } = currentController;
+      await loadServers(signal);
+      if (!signal.aborted) {
+        timeoutId = setTimeout(poll, 30_000);
+      }
+    };
+
+    timeoutId = setTimeout(poll, 30_000);
+    return () => {
+      clearTimeout(timeoutId);
+      currentController?.abort();
+    };
+  }, [isOpen, loadServers]);
 
   const toggleServer = async (serverName: string, enable: boolean) => {
-    const previousServers = servers.map((s) => ({ ...s }));
+    const controller = new AbortController();
+    const { signal } = controller;
+    toggleControllersRef.current.add(controller);
+    pendingTogglesRef.current.add(serverName);
 
-    setServers((prev) =>
-      prev.map((server) =>
-        server.name === serverName ? { ...server, enabled: enable } : server
-      )
-    );
+    const previousServers = servers;
+    setServers((prev) => prev.map((s) => (s.name === serverName ? { ...s, enabled: enable } : s)));
     setLoading((prev) => ({ ...prev, [serverName]: true }));
 
     try {
-      const endpoint = enable ? 'enable' : 'disable';
-      const response = await fetch(`${apiUrl}/v1/mcp/servers/${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ server_name: serverName }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.servers) {
-        setServers(data.servers);
-      }
+      const updated = await toggleMcpServer(serverName, enable, apiUrl, signal);
+      if (!signal.aborted) setServers(updated);
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
       console.error(`Failed to ${enable ? 'enable' : 'disable'} server:`, error);
-      setServers(previousServers);
+      if (!signal.aborted) setServers(previousServers);
     } finally {
-      setLoading((prev) => ({ ...prev, [serverName]: false }));
+      toggleControllersRef.current.delete(controller);
+      if (!signal.aborted) {
+        pendingTogglesRef.current.delete(serverName);
+        setLoading((prev) => ({ ...prev, [serverName]: false }));
+      }
     }
   };
+
+  useEffect(() => {
+    const serverNames = new Set(servers.map((s) => s.name));
+    setExpanded((prev) => {
+      const stale = Object.keys(prev).filter((name) => !serverNames.has(name));
+      if (stale.length === 0) return prev;
+      const next = { ...prev };
+      stale.forEach((name) => delete next[name]);
+      return next;
+    });
+  }, [servers]);
 
   const toggleExpand = (serverName: string) => {
     setExpanded((prev) => ({ ...prev, [serverName]: !prev[serverName] }));
@@ -85,11 +114,7 @@ export function McpPanel({ apiUrl }: McpPanelProps) {
     <div className="mcp-panel">
       <button className="mcp-toggle" onClick={() => setIsOpen(!isOpen)}>
         <span className="mcp-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="2" y="3" width="20" height="14" rx="2" />
-            <path d="M8 21h8" />
-            <path d="M12 17v4" />
-          </svg>
+          <Monitor size={16} />
         </span>
         <span>MCP Servers</span>
         <span className="mcp-badge">{enabledCount}/{servers.length}</span>
@@ -97,9 +122,7 @@ export function McpPanel({ apiUrl }: McpPanelProps) {
           <span className="mcp-tools-badge">{totalToolsCount} tools</span>
         )}
         <span className={`toggle-arrow ${isOpen ? 'open' : ''}`}>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
+          <ChevronDown size={10} />
         </span>
       </button>
 
@@ -123,9 +146,7 @@ export function McpPanel({ apiUrl }: McpPanelProps) {
                       disabled={!server.connected || server.tools_count === 0}
                     >
                       <span className={`expand-icon ${expanded[server.name] ? 'open' : ''}`}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="9 18 15 12 9 6" />
-                        </svg>
+                        <ChevronRight size={12} />
                       </span>
                     </button>
 

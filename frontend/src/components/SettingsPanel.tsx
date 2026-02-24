@@ -1,13 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Settings, Model } from '../types';
 import { fetchModels } from '../api/client';
+import { ChevronDown } from 'lucide-react';
 import '../styles/SettingsPanel.css';
 
 interface SettingsPanelProps {
   settings: Settings;
+  defaultSettings: Settings;
   onSettingsChange: (settings: Settings) => void;
   isConnected: boolean;
 }
+
+const modelsCache = new Map<string, Model[]>();
 
 const POPULAR_MODELS = [
   { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' },
@@ -19,16 +23,23 @@ const POPULAR_MODELS = [
   { id: 'meta-llama/llama-3.1-70b-instruct', name: 'Llama 3.1 70B' },
 ];
 
-export function SettingsPanel({ settings, onSettingsChange, isConnected }: SettingsPanelProps) {
+export function SettingsPanel({ settings, defaultSettings, onSettingsChange, isConnected }: SettingsPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [models, setModels] = useState<Model[]>(POPULAR_MODELS);
   const [modelsLoading, setModelsLoading] = useState(false);
 
   const loadModels = useCallback(async () => {
+    const cached = modelsCache.get(settings.apiUrl);
+    if (cached) {
+      setModels(cached);
+      return;
+    }
     setModelsLoading(true);
     try {
       const modelsList = await fetchModels(settings.apiUrl);
-      setModels(modelsList.length > 0 ? modelsList : POPULAR_MODELS);
+      const result = modelsList.length > 0 ? modelsList : POPULAR_MODELS;
+      modelsCache.set(settings.apiUrl, result);
+      setModels(result);
     } catch (error) {
       console.error('Failed to load models, using fallback:', error);
       setModels(POPULAR_MODELS);
@@ -47,6 +58,8 @@ export function SettingsPanel({ settings, onSettingsChange, isConnected }: Setti
     onSettingsChange({ ...settings, [key]: value });
   };
 
+  const isPipeline = settings.mode === 'pipeline';
+
   return (
     <div className="settings-panel">
       <button
@@ -56,11 +69,9 @@ export function SettingsPanel({ settings, onSettingsChange, isConnected }: Setti
       >
         <span className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`} />
         Settings
-        {settings.agentMode && <span className="agent-badge">Agent</span>}
+        <span className="agent-badge">{isPipeline ? 'Pipeline' : 'Free'}</span>
         <span className={`toggle-arrow ${isOpen ? 'open' : ''}`}>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
+          <ChevronDown size={10} />
         </span>
       </button>
 
@@ -70,14 +81,14 @@ export function SettingsPanel({ settings, onSettingsChange, isConnected }: Setti
             <div className="settings-group agent-mode-group">
               <label className="toggle-label">
                 <span className="toggle-text">
-                  <span>Agent Mode</span>
-                  <span className="toggle-description">Enable tools and multi-step reasoning</span>
+                  <span>Pipeline Mode</span>
+                  <span className="toggle-description">Analyze transactions by chain ID and tx hashes</span>
                 </span>
                 <div className="toggle-switch">
                   <input
                     type="checkbox"
-                    checked={settings.agentMode}
-                    onChange={(e) => handleChange('agentMode', e.target.checked)}
+                    checked={isPipeline}
+                    onChange={(e) => handleChange('mode', e.target.checked ? 'pipeline' : 'free')}
                   />
                   <span className="toggle-slider"></span>
                 </div>
@@ -86,13 +97,25 @@ export function SettingsPanel({ settings, onSettingsChange, isConnected }: Setti
 
             <div className="settings-group">
               <label htmlFor="apiUrl">API URL</label>
-              <input
-                id="apiUrl"
-                type="text"
-                value={settings.apiUrl}
-                onChange={(e) => handleChange('apiUrl', e.target.value)}
-                placeholder="http://localhost:3000"
-              />
+              <div className="input-with-reset">
+                <input
+                  id="apiUrl"
+                  type="text"
+                  value={settings.apiUrl}
+                  onChange={(e) => handleChange('apiUrl', e.target.value)}
+                  placeholder={defaultSettings.apiUrl}
+                />
+                {settings.apiUrl !== defaultSettings.apiUrl && (
+                  <button
+                    className="reset-button"
+                    type="button"
+                    title={`Reset to default: ${defaultSettings.apiUrl}`}
+                    onClick={() => handleChange('apiUrl', defaultSettings.apiUrl)}
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="settings-group">

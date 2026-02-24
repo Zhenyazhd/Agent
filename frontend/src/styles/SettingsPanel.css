@@ -253,3 +253,33 @@
 .toggle-switch input:checked + .toggle-slider:before {
   transform: translateX(20px);
 }
+
+.input-with-reset {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.input-with-reset input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.reset-button {
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color var(--transition), color var(--transition);
+  flex-shrink: 0;
+}
+
+.reset-button:hover {
+  border-color: var(--color-text-muted);
+  color: var(--color-text);
+}
